@@ -3,26 +3,102 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
+
+import Landing from "@/pages/Landing";
+import Dashboard from "@/pages/Dashboard";
+import ClientDashboard from "@/pages/ClientDashboard";
+import Orders from "@/pages/Orders";
+import Clients from "@/pages/Clients";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
-function Router() {
+function LoadingScreen() {
   return (
-    <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
-      {/* Fallback to 404 */}
-      <Route component={NotFound} />
-    </Switch>
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    </div>
   );
+}
+
+function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+  const sidebarStyle = {
+    "--sidebar-width": "16rem",
+    "--sidebar-width-icon": "3rem",
+  };
+
+  return (
+    <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+      <div className="flex h-screen w-full">
+        <AppSidebar />
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {children}
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function AdminRouter() {
+  return (
+    <AuthenticatedLayout>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/orders" component={Orders} />
+        <Route path="/clients" component={Clients} />
+        <Route path="/settings" component={Settings} />
+        <Route component={NotFound} />
+      </Switch>
+    </AuthenticatedLayout>
+  );
+}
+
+function ClientRouter() {
+  return (
+    <AuthenticatedLayout>
+      <Switch>
+        <Route path="/" component={ClientDashboard} />
+        <Route path="/settings" component={Settings} />
+        <Route component={NotFound} />
+      </Switch>
+    </AuthenticatedLayout>
+  );
+}
+
+function Router() {
+  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <Landing />;
+  }
+
+  if (isAdmin) {
+    return <AdminRouter />;
+  }
+
+  return <ClientRouter />;
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <ThemeProvider defaultTheme="light">
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

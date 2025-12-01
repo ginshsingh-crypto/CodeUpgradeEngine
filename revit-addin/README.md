@@ -8,6 +8,7 @@ A Revit add-in for uploading BIM models to the LOD 400 Delivery Platform for pro
 - **Pricing Preview**: See real-time pricing (150 SAR per sheet) before payment
 - **Secure Payment**: Integrated Stripe checkout for secure transactions
 - **Model Packaging**: Automatically packages your model with sheet manifest
+- **Workshared Support**: Safely handles workshared/central models
 - **Upload Progress**: Track upload progress with real-time feedback
 - **Order Tracking**: Check order status and download completed deliverables
 
@@ -18,9 +19,16 @@ A Revit add-in for uploading BIM models to the LOD 400 Delivery Platform for pro
 - **Visual Studio**: 2022 or later (for compilation)
 - **Internet Connection**: Required for API communication
 
-## Installation
+## Getting Started
 
-### Step 1: Configure API URL
+### Step 1: Generate Your API Key
+
+1. Log in to the LOD 400 Delivery web dashboard
+2. Go to Settings > API Keys
+3. Click "Create New API Key"
+4. Copy and save the key - it will only be shown once
+
+### Step 2: Configure API URL
 
 Before building, update the API URL in `App.cs`:
 
@@ -30,7 +38,7 @@ ApiBaseUrl = Environment.GetEnvironmentVariable("LOD400_API_URL")
     ?? "https://YOUR-REPLIT-URL.replit.app";
 ```
 
-### Step 2: Update Revit References
+### Step 3: Update Revit References
 
 Update the Revit API references in `LOD400Uploader.csproj` to match your Revit installation:
 
@@ -47,14 +55,14 @@ Update the Revit API references in `LOD400Uploader.csproj` to match your Revit i
 
 For different Revit versions, update the path (e.g., `Revit 2023`, `Revit 2022`, etc.)
 
-### Step 3: Build the Project
+### Step 4: Build the Project
 
 1. Open `LOD400Uploader.csproj` in Visual Studio 2022
 2. Restore NuGet packages (Newtonsoft.Json)
 3. Build the solution in Release mode
 4. The output will be in `bin\Release\net48\`
 
-### Step 4: Install the Add-in
+### Step 5: Install the Add-in
 
 1. Copy the following files to your Revit add-ins folder:
    - `LOD400Uploader.dll`
@@ -69,6 +77,13 @@ For different Revit versions, update the path (e.g., `Revit 2023`, `Revit 2022`,
 
 ## Usage
 
+### First-Time Login
+
+1. Go to the **LOD 400** tab in the ribbon
+2. Click **Upload Sheets** or **Check Status**
+3. Enter your API key when prompted
+4. The key will be saved for future sessions
+
 ### Uploading Sheets
 
 1. Open your Revit model
@@ -79,7 +94,8 @@ For different Revit versions, update the path (e.g., `Revit 2023`, `Revit 2022`,
 6. Review the pricing summary
 7. Click **Pay & Upload**
 8. Complete payment in your browser
-9. Wait for the upload to complete
+9. Wait for payment confirmation (automatic polling)
+10. Upload begins automatically after payment
 
 ### Checking Order Status
 
@@ -102,9 +118,11 @@ LOD400Uploader/
 ├── Models/
 │   └── Order.cs              # API data models
 ├── Services/
-│   ├── ApiService.cs         # API communication
-│   └── PackagingService.cs   # Model packaging
+│   ├── ApiService.cs         # API communication (with API key auth)
+│   └── PackagingService.cs   # Model packaging (workshared safe)
 └── Views/
+    ├── LoginDialog.xaml       # API key login UI
+    ├── LoginDialog.xaml.cs
     ├── UploadDialog.xaml      # Upload UI
     ├── UploadDialog.xaml.cs
     ├── StatusDialog.xaml      # Status UI
@@ -113,7 +131,17 @@ LOD400Uploader/
 
 ## Authentication
 
-The add-in uses token-based authentication. When you first use the add-in, you may be prompted to log in through the web browser. Your authentication will be maintained across sessions.
+The add-in uses API key authentication:
+- Generate API keys from the web dashboard
+- Keys are stored securely in `%APPDATA%\LOD400Uploader\config.json`
+- Keys can be revoked from the web dashboard at any time
+
+## Workshared Models
+
+The add-in safely handles workshared (central) models:
+- Detaches a copy for upload without affecting the central model
+- Preserves all model data and links
+- No changes are made to the original central model
 
 ## Troubleshooting
 
@@ -122,6 +150,12 @@ The add-in uses token-based authentication. When you first use the add-in, you m
 1. Check that all files are in the correct add-ins folder
 2. Verify the `.addin` manifest has the correct assembly name
 3. Check Revit's add-in manager for loading errors
+
+### API Key Invalid
+
+1. Verify you copied the complete key
+2. Generate a new key from the web dashboard
+3. Delete `%APPDATA%\LOD400Uploader\config.json` and re-enter the key
 
 ### Connection Errors
 
@@ -132,8 +166,28 @@ The add-in uses token-based authentication. When you first use the add-in, you m
 ### Upload Failures
 
 1. Save your model before uploading
-2. Check file size (large models may take longer)
-3. Ensure stable internet connection during upload
+2. Ensure unsaved changes are saved
+3. For workshared models, ensure you have proper access
+4. Check file size (large models may take longer)
+5. Ensure stable internet connection during upload
+
+### Payment Timeout
+
+1. Complete payment in the browser promptly
+2. If timeout occurs, you can continue waiting
+3. Check order status later if needed
+
+## API Endpoints Used
+
+The add-in communicates with these API endpoints:
+
+- `GET /api/addin/validate` - Validate API key
+- `POST /api/addin/create-order` - Create order and get payment URL
+- `GET /api/addin/orders` - List user orders
+- `GET /api/addin/orders/:id/status` - Get order status
+- `POST /api/addin/orders/:id/upload-url` - Get file upload URL
+- `POST /api/addin/orders/:id/upload-complete` - Mark upload complete
+- `GET /api/addin/orders/:id/download-url` - Get deliverable download URL
 
 ## Support
 

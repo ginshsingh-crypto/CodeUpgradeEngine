@@ -20,12 +20,14 @@ namespace LOD400Uploader.Views
         private readonly PackagingService _packagingService;
         private const int PRICE_PER_SHEET = 150;
 
-        public UploadDialog(Document document)
+        public UploadDialog(Document document) : this(document, null) { }
+
+        public UploadDialog(Document document, ApiService apiService)
         {
             InitializeComponent();
             _document = document;
             _sheets = new ObservableCollection<SheetItem>();
-            _apiService = new ApiService();
+            _apiService = apiService ?? new ApiService();
             _packagingService = new PackagingService();
 
             LoadSheets();
@@ -33,33 +35,41 @@ namespace LOD400Uploader.Views
 
         private void LoadSheets()
         {
-            var collector = new FilteredElementCollector(_document)
-                .OfClass(typeof(ViewSheet))
-                .Cast<ViewSheet>()
-                .Where(s => !s.IsPlaceholder)
-                .OrderBy(s => s.SheetNumber);
-
-            foreach (var sheet in collector)
+            try
             {
-                _sheets.Add(new SheetItem
-                {
-                    ElementId = sheet.Id,
-                    SheetNumber = sheet.SheetNumber,
-                    SheetName = sheet.Name,
-                    Revision = GetRevision(sheet),
-                    IsSelected = false
-                });
-            }
+                var collector = new FilteredElementCollector(_document)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .Where(s => s != null && !s.IsPlaceholder)
+                    .OrderBy(s => s.SheetNumber ?? "");
 
-            SheetListView.ItemsSource = _sheets;
-            UpdateSummary();
+                foreach (var sheet in collector)
+                {
+                    _sheets.Add(new SheetItem
+                    {
+                        ElementId = sheet.Id,
+                        SheetNumber = sheet.SheetNumber ?? "",
+                        SheetName = sheet.Name ?? "",
+                        Revision = GetRevision(sheet),
+                        IsSelected = false
+                    });
+                }
+
+                SheetListView.ItemsSource = _sheets;
+                UpdateSummary();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading sheets: {ex.Message}", "Error", 
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private string GetRevision(ViewSheet sheet)
         {
             try
             {
-                var param = sheet.get_Parameter(BuiltInParameter.SHEET_CURRENT_REVISION);
+                var param = sheet?.get_Parameter(BuiltInParameter.SHEET_CURRENT_REVISION);
                 return param?.AsString() ?? "";
             }
             catch
@@ -126,23 +136,32 @@ namespace LOD400Uploader.Views
                 return;
             }
 
+            if (!_apiService.HasApiKey)
+            {
+                var loginDialog = new LoginDialog();
+                if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                {
+                    return;
+                }
+            }
+
             UploadButton.IsEnabled = false;
             ProgressPanel.Visibility = Visibility.Visible;
 
+            string packagePath = null;
+
             try
             {
-                // Step 1: Create order
                 ProgressText.Text = "Creating order...";
-                ProgressBar.Value = 10;
+                ProgressBar.Value = 5;
 
                 var orderResponse = await _apiService.CreateOrderAsync(selectedSheets.Count);
                 var order = orderResponse.Order;
 
-                // Step 2: Open payment in browser
                 if (!string.IsNullOrEmpty(orderResponse.CheckoutUrl))
                 {
                     ProgressText.Text = "Opening payment page...";
-                    ProgressBar.Value = 20;
+                    ProgressBar.Value = 10;
 
                     Process.Start(new ProcessStartInfo
                     {
@@ -150,28 +169,65 @@ namespace LOD400Uploader.Views
                         UseShellExecute = true
                     });
 
-                    // Wait for payment confirmation
-                    var result = MessageBox.Show(
+                    MessageBox.Show(
                         "A payment page has been opened in your browser.\n\n" +
-                        "After completing the payment, click 'OK' to continue with the upload.\n" +
-                        "Click 'Cancel' to abort the process.",
+                        "Please complete the payment. The upload will begin automatically once payment is confirmed.\n\n" +
+                        "Do not close this window.",
                         "Complete Payment",
-                        MessageBoxButton.OKCancel,
+                        MessageBoxButton.OK,
                         MessageBoxImage.Information);
 
-                    if (result != MessageBoxResult.OK)
+                    ProgressText.Text = "Waiting for payment confirmation...";
+                    ProgressBar.Value = 15;
+                    ProgressBar.IsIndeterminate = true;
+
+                    try
                     {
-                        ProgressPanel.Visibility = Visibility.Collapsed;
-                        UploadButton.IsEnabled = true;
-                        return;
+                        order = await _apiService.PollOrderStatusAsync(order.Id, maxAttempts: 90, delayMs: 2000);
+                        ProgressBar.IsIndeterminate = false;
+                    }
+                    catch (TimeoutException)
+                    {
+                        ProgressBar.IsIndeterminate = false;
+                        var result = MessageBox.Show(
+                            "Payment confirmation is taking longer than expected.\n\n" +
+                            "Would you like to continue waiting?",
+                            "Payment Pending",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Question);
+
+                        if (result == MessageBoxResult.Yes)
+                        {
+                            ProgressBar.IsIndeterminate = true;
+                            order = await _apiService.PollOrderStatusAsync(order.Id, maxAttempts: 180, delayMs: 2000);
+                            ProgressBar.IsIndeterminate = false;
+                        }
+                        else
+                        {
+                            ProgressPanel.Visibility = Visibility.Collapsed;
+                            UploadButton.IsEnabled = true;
+                            MessageBox.Show(
+                                $"Order {order.Id} has been created but not paid.\n\n" +
+                                "You can complete payment later and upload your model using the 'Check Status' command.",
+                                "Order Pending",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                            return;
+                        }
                     }
                 }
 
-                // Step 3: Package model
+                if (order.Status != "paid" && order.Status != "uploaded" && 
+                    order.Status != "processing" && order.Status != "complete")
+                {
+                    throw new InvalidOperationException($"Order status is '{order.Status}'. Expected 'paid' or later status.");
+                }
+
                 ProgressText.Text = "Packaging model...";
+                ProgressBar.Value = 20;
+
                 var selectedIds = selectedSheets.Select(s => s.ElementId).ToList();
                 
-                string packagePath = null;
                 await Task.Run(() =>
                 {
                     packagePath = _packagingService.PackageModel(_document, selectedIds, (progress, message) =>
@@ -184,14 +240,12 @@ namespace LOD400Uploader.Views
                     });
                 });
 
-                // Step 4: Get upload URL
                 ProgressText.Text = "Preparing upload...";
                 ProgressBar.Value = 65;
 
                 string fileName = System.IO.Path.GetFileName(packagePath);
                 string uploadUrl = await _apiService.GetUploadUrlAsync(order.Id, fileName);
 
-                // Step 5: Upload file
                 ProgressText.Text = "Uploading model...";
                 ProgressBar.Value = 70;
 
@@ -206,14 +260,13 @@ namespace LOD400Uploader.Views
                     });
                 });
 
-                // Step 6: Mark upload complete
                 ProgressText.Text = "Finalizing...";
                 ProgressBar.Value = 95;
 
                 await _apiService.MarkUploadCompleteAsync(order.Id, fileName, fileSize, uploadUrl);
 
-                // Cleanup
                 _packagingService.Cleanup(packagePath);
+                packagePath = null;
 
                 ProgressBar.Value = 100;
                 ProgressText.Text = "Upload complete!";
@@ -232,6 +285,11 @@ namespace LOD400Uploader.Views
             }
             catch (Exception ex)
             {
+                if (!string.IsNullOrEmpty(packagePath))
+                {
+                    _packagingService.Cleanup(packagePath);
+                }
+
                 MessageBox.Show(
                     $"An error occurred during the upload process:\n\n{ex.Message}\n\n" +
                     "Please try again or contact support if the issue persists.",
@@ -240,6 +298,7 @@ namespace LOD400Uploader.Views
                     MessageBoxImage.Error);
 
                 ProgressPanel.Visibility = Visibility.Collapsed;
+                ProgressBar.IsIndeterminate = false;
                 UploadButton.IsEnabled = true;
             }
         }

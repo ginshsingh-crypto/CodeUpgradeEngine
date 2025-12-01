@@ -2,6 +2,7 @@ import {
   users,
   orders,
   files,
+  apiKeys,
   type User,
   type UpsertUser,
   type Order,
@@ -9,9 +10,12 @@ import {
   type File as FileRecord,
   type InsertFile,
   type OrderWithFiles,
+  type ApiKey,
+  type InsertApiKey,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface IStorage {
   // User operations
@@ -33,6 +37,13 @@ export interface IStorage {
   createFile(file: InsertFile): Promise<FileRecord>;
   getFile(id: string): Promise<FileRecord | undefined>;
   getFilesByOrderId(orderId: string): Promise<FileRecord[]>;
+  
+  // API Key operations
+  createApiKey(userId: string, name: string): Promise<{ apiKey: ApiKey; rawKey: string }>;
+  getApiKeysByUserId(userId: string): Promise<ApiKey[]>;
+  validateApiKey(rawKey: string): Promise<User | null>;
+  deleteApiKey(id: string, userId: string): Promise<boolean>;
+  updateApiKeyLastUsed(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -202,6 +213,62 @@ export class DatabaseStorage implements IStorage {
 
   async getFilesByOrderId(orderId: string): Promise<FileRecord[]> {
     return await db.select().from(files).where(eq(files.orderId, orderId));
+  }
+
+  // API Key operations
+  private hashApiKey(key: string): string {
+    return crypto.createHash('sha256').update(key).digest('hex');
+  }
+
+  private generateApiKey(): string {
+    return `lod400_${crypto.randomBytes(32).toString('hex')}`;
+  }
+
+  async createApiKey(userId: string, name: string): Promise<{ apiKey: ApiKey; rawKey: string }> {
+    const rawKey = this.generateApiKey();
+    const keyHash = this.hashApiKey(rawKey);
+
+    const [apiKey] = await db.insert(apiKeys).values({
+      userId,
+      name,
+      keyHash,
+    }).returning();
+
+    return { apiKey, rawKey };
+  }
+
+  async getApiKeysByUserId(userId: string): Promise<ApiKey[]> {
+    return await db.select().from(apiKeys)
+      .where(eq(apiKeys.userId, userId))
+      .orderBy(desc(apiKeys.createdAt));
+  }
+
+  async validateApiKey(rawKey: string): Promise<User | null> {
+    const keyHash = this.hashApiKey(rawKey);
+    
+    const [result] = await db.select()
+      .from(apiKeys)
+      .where(eq(apiKeys.keyHash, keyHash));
+    
+    if (!result) return null;
+
+    await this.updateApiKeyLastUsed(result.id);
+    
+    const user = await this.getUser(result.userId);
+    return user || null;
+  }
+
+  async deleteApiKey(id: string, userId: string): Promise<boolean> {
+    const result = await db.delete(apiKeys)
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async updateApiKeyLastUsed(id: string): Promise<void> {
+    await db.update(apiKeys)
+      .set({ lastUsed: new Date() })
+      .where(eq(apiKeys.id, id));
   }
 }
 

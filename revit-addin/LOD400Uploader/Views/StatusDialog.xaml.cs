@@ -14,19 +14,44 @@ namespace LOD400Uploader.Views
     {
         private readonly ApiService _apiService;
         private readonly ObservableCollection<OrderViewModel> _orders;
+        private bool _isAuthenticated;
 
-        public StatusDialog()
+        public StatusDialog() : this(null) { }
+
+        public StatusDialog(ApiService apiService)
         {
             InitializeComponent();
-            _apiService = new ApiService();
+            _apiService = apiService ?? new ApiService();
             _orders = new ObservableCollection<OrderViewModel>();
             OrdersListView.ItemsSource = _orders;
 
-            Loaded += async (s, e) => await LoadOrdersAsync();
+            Loaded += async (s, e) => await InitializeAsync();
+        }
+
+        private async System.Threading.Tasks.Task InitializeAsync()
+        {
+            if (!_apiService.HasApiKey)
+            {
+                var loginDialog = new LoginDialog();
+                if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                {
+                    Close();
+                    return;
+                }
+                _isAuthenticated = true;
+            }
+            else
+            {
+                _isAuthenticated = true;
+            }
+
+            await LoadOrdersAsync();
         }
 
         private async System.Threading.Tasks.Task LoadOrdersAsync()
         {
+            if (!_isAuthenticated) return;
+
             try
             {
                 LoadingPanel.Visibility = Visibility.Visible;
@@ -36,9 +61,13 @@ namespace LOD400Uploader.Views
                 var orders = await _apiService.GetOrdersAsync();
                 
                 _orders.Clear();
-                foreach (var order in orders.OrderByDescending(o => o.CreatedAt))
+                
+                if (orders != null)
                 {
-                    _orders.Add(new OrderViewModel(order));
+                    foreach (var order in orders.OrderByDescending(o => o.CreatedAt ?? DateTime.MinValue))
+                    {
+                        _orders.Add(new OrderViewModel(order));
+                    }
                 }
 
                 LoadingPanel.Visibility = Visibility.Collapsed;
@@ -55,6 +84,8 @@ namespace LOD400Uploader.Views
             catch (Exception ex)
             {
                 LoadingPanel.Visibility = Visibility.Collapsed;
+                EmptyPanel.Visibility = Visibility.Visible;
+                
                 MessageBox.Show(
                     $"Failed to load orders:\n\n{ex.Message}\n\n" +
                     "Please check your connection and try again.",
@@ -75,7 +106,11 @@ namespace LOD400Uploader.Views
             
             if (selectedOrder != null)
             {
-                SelectedOrderText.Text = $"Order: {selectedOrder.Id.Substring(0, 8)}... | Status: {selectedOrder.StatusDisplay}";
+                string shortId = selectedOrder.Id?.Length > 8 
+                    ? selectedOrder.Id.Substring(0, 8) + "..." 
+                    : selectedOrder.Id ?? "";
+                    
+                SelectedOrderText.Text = $"Order: {shortId} | Status: {selectedOrder.StatusDisplay}";
                 DownloadButton.IsEnabled = selectedOrder.Status == "complete";
             }
             else
@@ -88,10 +123,17 @@ namespace LOD400Uploader.Views
         private async void DownloadButton_Click(object sender, RoutedEventArgs e)
         {
             var selectedOrder = OrdersListView.SelectedItem as OrderViewModel;
-            if (selectedOrder == null || selectedOrder.Status != "complete")
+            if (selectedOrder == null)
             {
-                MessageBox.Show("Please select a completed order to download.", "No Order Selected",
+                MessageBox.Show("Please select an order first.", "No Order Selected",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (selectedOrder.Status != "complete")
+            {
+                MessageBox.Show("This order is not yet complete. Please wait for processing to finish.", 
+                    "Order Not Ready", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -102,7 +144,11 @@ namespace LOD400Uploader.Views
 
                 var downloadInfo = await _apiService.GetDownloadUrlAsync(selectedOrder.Id);
 
-                // Open download in browser
+                if (downloadInfo == null || string.IsNullOrEmpty(downloadInfo.DownloadURL))
+                {
+                    throw new InvalidOperationException("No download URL available for this order.");
+                }
+
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = downloadInfo.DownloadURL,
@@ -110,7 +156,7 @@ namespace LOD400Uploader.Views
                 });
 
                 MessageBox.Show(
-                    $"Download started for: {downloadInfo.FileName}\n\n" +
+                    $"Download started for: {downloadInfo.FileName ?? "deliverables"}\n\n" +
                     "The file will be saved to your default downloads folder.",
                     "Download Started",
                     MessageBoxButton.OK,
@@ -127,7 +173,8 @@ namespace LOD400Uploader.Views
             finally
             {
                 DownloadButton.Content = "Download Deliverables";
-                DownloadButton.IsEnabled = true;
+                DownloadButton.IsEnabled = OrdersListView.SelectedItem != null && 
+                    ((OrderViewModel)OrdersListView.SelectedItem).Status == "complete";
             }
         }
 
@@ -152,7 +199,7 @@ namespace LOD400Uploader.Views
             "uploaded" => "Uploaded",
             "processing" => "Processing",
             "complete" => "Complete",
-            _ => Status
+            _ => Status ?? "Unknown"
         };
 
         public Brush StatusBackground => Status switch
@@ -177,11 +224,11 @@ namespace LOD400Uploader.Views
 
         public OrderViewModel(Order order)
         {
-            Id = order.Id;
-            SheetCount = order.SheetCount;
-            TotalPriceSar = order.TotalPriceSar;
-            Status = order.Status;
-            CreatedAt = order.CreatedAt;
+            Id = order?.Id ?? "";
+            SheetCount = order?.SheetCount ?? 0;
+            TotalPriceSar = order?.TotalPriceSar ?? 0;
+            Status = order?.Status ?? "";
+            CreatedAt = order?.CreatedAt;
         }
     }
 }

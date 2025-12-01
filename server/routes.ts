@@ -375,12 +375,91 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // API ROUTES FOR REVIT ADD-IN
+  // API KEY MANAGEMENT (for Revit add-in users)
   // ============================================
 
-  app.post("/api/addin/create-order", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/api-keys", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      const keys = await storage.getApiKeysByUserId(userId);
+      const safeKeys = keys.map(k => ({
+        id: k.id,
+        name: k.name,
+        lastUsed: k.lastUsed,
+        createdAt: k.createdAt,
+      }));
+      res.json(safeKeys);
+    } catch (error) {
+      console.error("Error fetching API keys:", error);
+      res.status(500).json({ message: "Failed to fetch API keys" });
+    }
+  });
+
+  app.post("/api/user/api-keys", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { name } = req.body;
+      
+      if (!name || typeof name !== "string") {
+        return res.status(400).json({ message: "Name is required" });
+      }
+
+      const { apiKey, rawKey } = await storage.createApiKey(userId, name);
+      res.status(201).json({
+        id: apiKey.id,
+        name: apiKey.name,
+        key: rawKey,
+        createdAt: apiKey.createdAt,
+      });
+    } catch (error) {
+      console.error("Error creating API key:", error);
+      res.status(500).json({ message: "Failed to create API key" });
+    }
+  });
+
+  app.delete("/api/user/api-keys/:keyId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { keyId } = req.params;
+      
+      const deleted = await storage.deleteApiKey(keyId, userId);
+      if (!deleted) {
+        return res.status(404).json({ message: "API key not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting API key:", error);
+      res.status(500).json({ message: "Failed to delete API key" });
+    }
+  });
+
+  // ============================================
+  // API ROUTES FOR REVIT ADD-IN (API Key Auth)
+  // ============================================
+
+  const isApiKeyAuthenticated = async (req: any, res: any, next: any) => {
+    const apiKey = req.headers["x-api-key"];
+    
+    if (!apiKey || typeof apiKey !== "string") {
+      return res.status(401).json({ message: "API key required" });
+    }
+
+    const user = await storage.validateApiKey(apiKey);
+    if (!user) {
+      return res.status(401).json({ message: "Invalid API key" });
+    }
+
+    req.apiUser = user;
+    next();
+  };
+
+  app.get("/api/addin/validate", isApiKeyAuthenticated, async (req: any, res) => {
+    res.json({ valid: true, userId: req.apiUser.id });
+  });
+
+  app.post("/api/addin/create-order", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
       const parsed = createOrderRequestSchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -432,6 +511,138 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error creating order:", error);
       res.status(500).json({ message: "Failed to create order" });
+    }
+  });
+
+  app.get("/api/addin/orders", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const orders = await storage.getOrdersByUserId(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+
+  app.get("/api/addin/orders/:orderId/status", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const { orderId } = req.params;
+
+      const order = await storage.getOrderWithFiles(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      res.json(order);
+    } catch (error) {
+      console.error("Error checking order status:", error);
+      res.status(500).json({ message: "Failed to check order status" });
+    }
+  });
+
+  app.post("/api/addin/orders/:orderId/upload-url", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const { orderId } = req.params;
+      const { fileName } = req.body;
+
+      if (!fileName) {
+        return res.status(400).json({ message: "fileName is required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      if (order.status !== "paid") {
+        return res.status(400).json({ message: "Order must be paid before uploading files" });
+      }
+
+      const uploadURL = await objectStorage.getUploadURL(orderId, fileName);
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ message: "Failed to get upload URL" });
+    }
+  });
+
+  app.post("/api/addin/orders/:orderId/upload-complete", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const { orderId } = req.params;
+      const { fileName, fileSize, uploadURL } = req.body;
+
+      if (!fileName || !uploadURL) {
+        return res.status(400).json({ message: "fileName and uploadURL are required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const storageKey = objectStorage.normalizeStorageKey(uploadURL);
+
+      await storage.createFile({
+        orderId,
+        fileType: "input",
+        fileName,
+        fileSize: fileSize || null,
+        storageKey,
+        mimeType: "application/zip",
+      });
+
+      await storage.updateOrderStatus(orderId, "uploaded");
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error completing upload:", error);
+      res.status(500).json({ message: "Failed to complete upload" });
+    }
+  });
+
+  app.get("/api/addin/orders/:orderId/download-url", isApiKeyAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const { orderId } = req.params;
+
+      const order = await storage.getOrderWithFiles(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      if (order.status !== "complete") {
+        return res.status(400).json({ message: "Order is not complete" });
+      }
+
+      const outputFile = order.files?.find(f => f.fileType === "output");
+      if (!outputFile) {
+        return res.status(404).json({ message: "No deliverables found" });
+      }
+
+      const downloadURL = await objectStorage.getDownloadURL(outputFile.storageKey);
+      res.json({ downloadURL, fileName: outputFile.fileName });
+    } catch (error) {
+      console.error("Error getting download URL:", error);
+      res.status(500).json({ message: "Failed to get download URL" });
     }
   });
 

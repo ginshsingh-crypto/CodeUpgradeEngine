@@ -1,62 +1,107 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
 import AwsS3 from "@uppy/aws-s3";
-import type { UploadResult } from "@uppy/core";
+import type { UploadResult, UppyFile } from "@uppy/core";
 import { Button } from "@/components/ui/button";
+import "@uppy/core/css/style.min.css";
+import "@uppy/dashboard/css/style.min.css";
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
   maxFileSize?: number;
-  onGetUploadParameters: () => Promise<{
-    method: "PUT";
-    url: string;
-  }>;
-  onComplete?: (
-    result: UploadResult<Record<string, unknown>, Record<string, unknown>>
-  ) => void;
+  allowedFileTypes?: string[];
+  getUploadUrl: (fileName: string) => Promise<string>;
+  onUploadComplete?: (fileName: string, uploadUrl: string, fileSize: number) => Promise<void>;
+  onAllComplete?: () => void;
   buttonClassName?: string;
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "link" | "destructive";
   children: ReactNode;
   disabled?: boolean;
 }
 
 export function ObjectUploader({
   maxNumberOfFiles = 1,
-  maxFileSize = 524288000, // 500MB default for Revit models
-  onGetUploadParameters,
-  onComplete,
+  maxFileSize = 524288000,
+  allowedFileTypes,
+  getUploadUrl,
+  onUploadComplete,
+  onAllComplete,
   buttonClassName,
+  buttonVariant = "default",
   children,
   disabled = false,
 }: ObjectUploaderProps) {
   const [showModal, setShowModal] = useState(false);
-  const [uppy] = useState(() =>
-    new Uppy({
+  
+  const uppy = useMemo(() => {
+    const uppyInstance = new Uppy({
       restrictions: {
         maxNumberOfFiles,
         maxFileSize,
+        allowedFileTypes,
       },
       autoProceed: false,
-    })
-      .use(AwsS3, {
-        shouldUseMultipart: false,
-        getUploadParameters: onGetUploadParameters,
-      })
-      .on("complete", (result) => {
-        onComplete?.(result);
-        setShowModal(false);
-      })
-  );
+    });
+
+    uppyInstance.use(AwsS3, {
+      shouldUseMultipart: false,
+      getUploadParameters: async (file: UppyFile<Record<string, unknown>, Record<string, unknown>>) => {
+        const url = await getUploadUrl(file.name);
+        (file as any).uploadUrl = url;
+        return {
+          method: "PUT" as const,
+          url,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        };
+      },
+    });
+
+    return uppyInstance;
+  }, [getUploadUrl, maxNumberOfFiles, maxFileSize, allowedFileTypes]);
+
+  useEffect(() => {
+    const handleUploadSuccess = async (file: UppyFile<Record<string, unknown>, Record<string, unknown>> | undefined) => {
+      if (file && onUploadComplete) {
+        const uploadUrl = (file as any).uploadUrl;
+        await onUploadComplete(file.name, uploadUrl, file.size);
+      }
+    };
+
+    const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+      if (result.successful.length > 0 && onAllComplete) {
+        onAllComplete();
+      }
+      setShowModal(false);
+      uppy.cancelAll();
+    };
+
+    uppy.on("upload-success", handleUploadSuccess);
+    uppy.on("complete", handleComplete);
+
+    return () => {
+      uppy.off("upload-success", handleUploadSuccess);
+      uppy.off("complete", handleComplete);
+    };
+  }, [uppy, onUploadComplete, onAllComplete]);
+
+  useEffect(() => {
+    return () => {
+      uppy.close();
+    };
+  }, [uppy]);
 
   return (
     <div>
       <Button 
         onClick={() => setShowModal(true)} 
         className={buttonClassName}
+        variant={buttonVariant}
         disabled={disabled}
+        data-testid="button-open-uploader"
       >
         {children}
       </Button>
@@ -64,8 +109,12 @@ export function ObjectUploader({
       <DashboardModal
         uppy={uppy}
         open={showModal}
-        onRequestClose={() => setShowModal(false)}
+        onRequestClose={() => {
+          setShowModal(false);
+          uppy.cancelAll();
+        }}
         proudlyDisplayPoweredByUppy={false}
+        note="Upload your LOD 400 deliverables (ZIP file)"
       />
     </div>
   );

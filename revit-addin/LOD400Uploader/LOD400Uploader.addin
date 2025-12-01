@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>LOD 400 Uploader</Name>
+    <Assembly>LOD400Uploader.dll</Assembly>
+    <FullClassName>LOD400Uploader.App</FullClassName>
+    <AddInId>A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D</AddInId>
+    <VendorId>LOD400</VendorId>
+    <VendorDescription>LOD 400 Delivery Platform</VendorDescription>
+  </AddIn>
+</RevitAddIns>

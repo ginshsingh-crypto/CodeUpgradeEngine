@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyTitle>LOD 400 Uploader</AssemblyTitle>
+    <Product>LOD 400 Delivery Add-in</Product>
+    <Description>Revit add-in for uploading BIM models for LOD 400 upgrade service</Description>
+    <Company>LOD 400 Delivery</Company>
+    <Copyright>Copyright © 2024</Copyright>
+    <OutputType>Library</OutputType>
+    <RootNamespace>LOD400Uploader</RootNamespace>
+    <AssemblyName>LOD400Uploader</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Revit API references - Update paths for your Revit version -->
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPIUI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\icon.png" />
+  </ItemGroup>
+
+</Project>

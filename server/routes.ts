@@ -4,11 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { createOrderRequestSchema, PRICE_PER_SHEET_SAR } from "@shared/schema";
-import Stripe from "stripe";
-
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY)
-  : null;
+import { getUncachableStripeClient } from "./stripeClient";
 
 const objectStorage = new ObjectStorageService();
 
@@ -16,10 +12,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Auth middleware
   await setupAuth(app);
 
-  // Auth routes
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -35,7 +29,6 @@ export async function registerRoutes(
   // CLIENT API ROUTES
   // ============================================
 
-  // Get user's orders
   app.get("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -47,7 +40,6 @@ export async function registerRoutes(
     }
   });
 
-  // Create a new order
   app.post("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -74,7 +66,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get checkout URL for an order
   app.get("/api/orders/:orderId/checkout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -93,11 +84,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Order is not pending payment" });
       }
 
-      if (!stripe) {
-        return res.status(500).json({ message: "Payment system not configured" });
-      }
+      const stripe = await getUncachableStripeClient();
 
-      // Create Stripe checkout session
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [
@@ -108,21 +96,20 @@ export async function registerRoutes(
                 name: `LOD 400 Sheet Upgrade (${order.sheetCount} sheets)`,
                 description: `Professional LOD 300 to LOD 400 model upgrade for ${order.sheetCount} sheets`,
               },
-              unit_amount: order.totalPriceSar * 100, // Stripe expects cents/halalas
+              unit_amount: order.totalPriceSar * 100,
             },
             quantity: 1,
           },
         ],
         mode: "payment",
-        success_url: `${req.protocol}://${req.hostname}/?payment=success&order=${orderId}`,
-        cancel_url: `${req.protocol}://${req.hostname}/?payment=cancelled&order=${orderId}`,
+        success_url: `${req.protocol}://${req.get('host')}/?payment=success&order=${orderId}`,
+        cancel_url: `${req.protocol}://${req.get('host')}/?payment=cancelled&order=${orderId}`,
         metadata: {
           orderId,
           userId,
         },
       });
 
-      // Update order with session ID
       await storage.updateOrder(orderId, { stripeSessionId: session.id });
 
       res.redirect(session.url!);
@@ -132,7 +119,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get upload URL for order files
   app.post("/api/orders/:orderId/upload-url", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -165,7 +151,6 @@ export async function registerRoutes(
     }
   });
 
-  // Mark upload complete
   app.post("/api/orders/:orderId/upload-complete", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -185,10 +170,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      // Normalize storage key from upload URL
       const storageKey = objectStorage.normalizeStorageKey(uploadURL);
 
-      // Create file record
       await storage.createFile({
         orderId,
         fileType: "input",
@@ -198,7 +181,6 @@ export async function registerRoutes(
         mimeType: "application/zip",
       });
 
-      // Update order status
       await storage.updateOrderStatus(orderId, "uploaded");
 
       res.json({ success: true });
@@ -208,7 +190,6 @@ export async function registerRoutes(
     }
   });
 
-  // Check order status
   app.get("/api/orders/:orderId/status", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -219,7 +200,6 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Allow both owner and admin to check status
       const user = await storage.getUser(userId);
       if (order.userId !== userId && !user?.isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
@@ -232,7 +212,6 @@ export async function registerRoutes(
     }
   });
 
-  // Download file
   app.get("/api/files/:fileId/download", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -248,7 +227,6 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Allow both owner and admin to download
       const user = await storage.getUser(userId);
       if (order.userId !== userId && !user?.isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
@@ -269,7 +247,6 @@ export async function registerRoutes(
   // ADMIN API ROUTES
   // ============================================
 
-  // Get all orders (admin)
   app.get("/api/admin/orders", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const orders = await storage.getAllOrders();
@@ -280,7 +257,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get all clients (admin)
   app.get("/api/admin/clients", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const clients = await storage.getUsersWithOrderStats();
@@ -291,7 +267,6 @@ export async function registerRoutes(
     }
   });
 
-  // Update order status (admin)
   app.patch("/api/admin/orders/:orderId/status", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { orderId } = req.params;
@@ -313,7 +288,6 @@ export async function registerRoutes(
     }
   });
 
-  // Upload deliverables URL (admin)
   app.post("/api/admin/orders/:orderId/upload-url", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { orderId } = req.params;
@@ -341,7 +315,6 @@ export async function registerRoutes(
     }
   });
 
-  // Admin upload complete
   app.post("/api/admin/orders/:orderId/upload-complete", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { orderId } = req.params;
@@ -376,7 +349,6 @@ export async function registerRoutes(
     }
   });
 
-  // Mark order complete (admin)
   app.post("/api/admin/orders/:orderId/complete", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { orderId } = req.params;
@@ -393,8 +365,6 @@ export async function registerRoutes(
 
       await storage.updateOrderStatus(orderId, "complete");
 
-      // TODO: Send email notification to client via Resend
-      // For now, just log it
       console.log(`Order ${orderId} marked complete. Client email: ${order.user?.email}`);
 
       res.json({ success: true });
@@ -405,69 +375,9 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // STRIPE WEBHOOK
-  // ============================================
-
-  app.post("/api/webhooks/stripe", async (req, res) => {
-    if (!stripe) {
-      return res.status(500).json({ message: "Stripe not configured" });
-    }
-
-    const sig = req.headers["stripe-signature"];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!sig || !endpointSecret) {
-      return res.status(400).json({ message: "Missing signature or secret" });
-    }
-
-    let event: Stripe.Event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.rawBody as Buffer,
-        sig,
-        endpointSecret
-      );
-    } catch (err: any) {
-      console.error("Webhook signature verification failed:", err.message);
-      return res.status(400).json({ message: `Webhook Error: ${err.message}` });
-    }
-
-    // Handle the event
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const orderId = session.metadata?.orderId;
-
-        if (orderId) {
-          await storage.updateOrder(orderId, {
-            stripePaymentIntentId: session.payment_intent as string,
-          });
-          await storage.updateOrderStatus(orderId, "paid");
-          console.log(`Order ${orderId} payment completed`);
-        }
-        break;
-      }
-
-      case "checkout.session.expired": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const orderId = session.metadata?.orderId;
-        console.log(`Checkout session expired for order ${orderId}`);
-        break;
-      }
-
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
-    }
-
-    res.json({ received: true });
-  });
-
-  // ============================================
   // API ROUTES FOR REVIT ADD-IN
   // ============================================
 
-  // Create order from add-in (returns checkout URL)
   app.post("/api/addin/create-order", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -487,15 +397,8 @@ export async function registerRoutes(
         status: "pending",
       });
 
-      if (!stripe) {
-        return res.status(201).json({ 
-          order,
-          checkoutUrl: null,
-          message: "Payment system not configured" 
-        });
-      }
+      const stripe = await getUncachableStripeClient();
 
-      // Create Stripe checkout session
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [
@@ -512,8 +415,8 @@ export async function registerRoutes(
           },
         ],
         mode: "payment",
-        success_url: `${req.protocol}://${req.hostname}/?payment=success&order=${order.id}`,
-        cancel_url: `${req.protocol}://${req.hostname}/?payment=cancelled&order=${order.id}`,
+        success_url: `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}/?payment=success&order=${order.id}`,
+        cancel_url: `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}/?payment=cancelled&order=${order.id}`,
         metadata: {
           orderId: order.id,
           userId,
@@ -532,7 +435,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get download URL for completed order (add-in)
   app.get("/api/orders/:orderId/download-url", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -561,6 +463,18 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting download URL:", error);
       res.status(500).json({ message: "Failed to get download URL" });
+    }
+  });
+
+  // Get Stripe publishable key for frontend
+  app.get("/api/stripe/config", async (req, res) => {
+    try {
+      const { getStripePublishableKey } = await import("./stripeClient");
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error) {
+      console.error("Error getting Stripe config:", error);
+      res.status(500).json({ message: "Failed to get Stripe configuration" });
     }
   });
 

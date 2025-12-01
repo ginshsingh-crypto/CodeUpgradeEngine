@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -9,20 +11,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderTimeline } from "@/components/OrderTimeline";
-import { Download, Upload, FileArchive, ExternalLink } from "lucide-react";
+import { ObjectUploader } from "@/components/ObjectUploader";
+import { Download, Upload, FileArchive, ExternalLink, Loader2 } from "lucide-react";
 import type { OrderWithFiles } from "@shared/schema";
 import { format } from "date-fns";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface OrderDetailModalProps {
   order: OrderWithFiles | null;
   isOpen: boolean;
   onClose: () => void;
   onDownloadInputs?: () => void;
-  onUploadOutputs?: () => void;
   onMarkComplete?: () => void;
   onDownloadOutputs?: () => void;
   isAdmin?: boolean;
-  isUploading?: boolean;
   isMarkingComplete?: boolean;
 }
 
@@ -57,13 +60,49 @@ export function OrderDetailModal({
   isOpen,
   onClose,
   onDownloadInputs,
-  onUploadOutputs,
   onMarkComplete,
   onDownloadOutputs,
   isAdmin = false,
-  isUploading = false,
   isMarkingComplete = false,
 }: OrderDetailModalProps) {
+  const { toast } = useToast();
+  const [isUploading, setIsUploading] = useState(false);
+
+  const getUploadUrl = async (fileName: string): Promise<string> => {
+    if (!order) throw new Error("No order selected");
+    
+    const response = await apiRequest("POST", `/api/admin/orders/${order.id}/upload-url`, {
+      fileName,
+    });
+    const data = await response.json();
+    return data.uploadURL;
+  };
+
+  const handleUploadComplete = async (fileName: string, uploadUrl: string, fileSize: number) => {
+    if (!order) return;
+    
+    try {
+      await apiRequest("POST", `/api/admin/orders/${order.id}/upload-complete`, {
+        fileName,
+        fileSize,
+        uploadURL: uploadUrl,
+      });
+    } catch (error) {
+      console.error("Error completing upload:", error);
+      throw error;
+    }
+  };
+
+  const handleAllUploadsComplete = () => {
+    setIsUploading(false);
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/orders"] });
+    toast({
+      title: "Upload Complete",
+      description: "Deliverables have been uploaded successfully. You can now mark the order as complete.",
+    });
+    onClose();
+  };
+
   if (!order) return null;
 
   const inputFiles = order.files?.filter((f) => f.fileType === "input") || [];
@@ -87,7 +126,7 @@ export function OrderDetailModal({
             <CardContent className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Order ID</p>
-                <p className="font-mono">{order.id}</p>
+                <p className="font-mono text-xs">{order.id}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Created</p>
@@ -243,15 +282,18 @@ export function OrderDetailModal({
             <>
               <Separator />
               <div className="flex flex-wrap gap-3 justify-end">
-                {order.status === "uploaded" && onUploadOutputs && (
-                  <Button
-                    onClick={onUploadOutputs}
+                {(order.status === "uploaded" || order.status === "processing") && (
+                  <ObjectUploader
+                    getUploadUrl={getUploadUrl}
+                    onUploadComplete={handleUploadComplete}
+                    onAllComplete={handleAllUploadsComplete}
+                    allowedFileTypes={[".zip", ".rvt", ".rfa"]}
+                    buttonVariant="outline"
                     disabled={isUploading}
-                    data-testid="button-upload-outputs"
                   >
                     <Upload className="h-4 w-4 mr-2" />
                     {isUploading ? "Uploading..." : "Upload Deliverables"}
-                  </Button>
+                  </ObjectUploader>
                 )}
                 {order.status === "processing" && outputFiles.length > 0 && onMarkComplete && (
                   <Button
@@ -259,7 +301,14 @@ export function OrderDetailModal({
                     disabled={isMarkingComplete}
                     data-testid="button-mark-complete"
                   >
-                    {isMarkingComplete ? "Completing..." : "Mark Complete & Notify Client"}
+                    {isMarkingComplete ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Completing...
+                      </>
+                    ) : (
+                      "Mark Complete & Notify Client"
+                    )}
                   </Button>
                 )}
               </div>

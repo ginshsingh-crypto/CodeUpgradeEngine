@@ -21,6 +21,7 @@ import {
   LogOut,
   Building2,
   Users,
+  Download,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -51,6 +52,11 @@ const clientNavItems = [
     title: "My Orders",
     url: "/",
     icon: FileBox,
+  },
+  {
+    title: "Downloads",
+    url: "/downloads",
+    icon: Download,
   },
   {
     title: "Settings",

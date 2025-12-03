@@ -1,0 +1,185 @@
+# LOD 400 Uploader - Revit Add-in Installer
+# Run this script with: Right-click -> Run with PowerShell
+# Or: powershell -ExecutionPolicy Bypass -File Install-LOD400.ps1
+
+param(
+    [string]$ApiUrl = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  LOD 400 Uploader - Revit Add-in" -ForegroundColor Cyan
+Write-Host "  Installation Script" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Get script directory
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $ScriptDir) {
+    $ScriptDir = Get-Location
+}
+
+# Required files
+$RequiredFiles = @(
+    "LOD400Uploader.dll",
+    "Newtonsoft.Json.dll",
+    "LOD400Uploader.addin"
+)
+
+# Check if required files exist
+Write-Host "Checking required files..." -ForegroundColor Yellow
+$MissingFiles = @()
+foreach ($file in $RequiredFiles) {
+    $filePath = Join-Path $ScriptDir $file
+    if (-not (Test-Path $filePath)) {
+        $MissingFiles += $file
+    }
+}
+
+if ($MissingFiles.Count -gt 0) {
+    Write-Host ""
+    Write-Host "ERROR: Missing required files:" -ForegroundColor Red
+    foreach ($file in $MissingFiles) {
+        Write-Host "  - $file" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "Please make sure all add-in files are in the same folder as this script." -ForegroundColor Yellow
+    Write-Host "If you downloaded the source code, you need to compile it first in Visual Studio." -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host "All required files found." -ForegroundColor Green
+Write-Host ""
+
+# Detect Revit installations
+Write-Host "Detecting Revit installations..." -ForegroundColor Yellow
+
+$RevitVersions = @()
+$RevitBasePaths = @(
+    "$env:APPDATA\Autodesk\Revit\Addins",
+    "$env:ProgramData\Autodesk\Revit\Addins"
+)
+
+# Check for Revit 2020-2025
+for ($year = 2020; $year -le 2025; $year++) {
+    $programPath = "C:\Program Files\Autodesk\Revit $year"
+    if (Test-Path $programPath) {
+        $RevitVersions += $year
+    }
+}
+
+if ($RevitVersions.Count -eq 0) {
+    Write-Host ""
+    Write-Host "WARNING: No Revit installations detected automatically." -ForegroundColor Yellow
+    Write-Host "This might be because Revit is installed in a non-standard location." -ForegroundColor Yellow
+    Write-Host ""
+    $ManualYear = Read-Host "Enter your Revit version year (e.g., 2024), or press Enter to cancel"
+    if ($ManualYear -match '^\d{4}$') {
+        $RevitVersions += [int]$ManualYear
+    } else {
+        Write-Host "Installation cancelled." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+
+Write-Host ""
+Write-Host "Found Revit versions: $($RevitVersions -join ', ')" -ForegroundColor Green
+Write-Host ""
+
+# Let user choose version if multiple found
+$SelectedVersion = $RevitVersions[0]
+if ($RevitVersions.Count -gt 1) {
+    Write-Host "Multiple Revit versions found. Select which one to install to:" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $RevitVersions.Count; $i++) {
+        Write-Host "  [$($i + 1)] Revit $($RevitVersions[$i])"
+    }
+    Write-Host "  [A] All versions"
+    Write-Host ""
+    $choice = Read-Host "Enter your choice"
+    
+    if ($choice -eq 'A' -or $choice -eq 'a') {
+        $SelectedVersion = $RevitVersions
+    } elseif ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $RevitVersions.Count) {
+        $SelectedVersion = @($RevitVersions[[int]$choice - 1])
+    } else {
+        Write-Host "Invalid choice. Using first version: Revit $($RevitVersions[0])" -ForegroundColor Yellow
+        $SelectedVersion = @($RevitVersions[0])
+    }
+} else {
+    $SelectedVersion = @($SelectedVersion)
+}
+
+# Create config directory and file
+$ConfigDir = "$env:APPDATA\LOD400Uploader"
+if (-not (Test-Path $ConfigDir)) {
+    New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
+}
+
+# Write config file with API URL
+if (-not $ApiUrl) {
+    Write-Host ""
+    Write-Host "Enter the LOD 400 Platform URL" -ForegroundColor Yellow
+    Write-Host "(This is the website address where you log in)" -ForegroundColor Gray
+    $ApiUrl = Read-Host "URL (e.g., https://yourapp.replit.app)"
+}
+
+if ($ApiUrl) {
+    # Remove trailing slash
+    $ApiUrl = $ApiUrl.TrimEnd('/')
+    
+    $ConfigFile = Join-Path $ConfigDir "config.json"
+    $Config = @{
+        apiUrl = $ApiUrl
+        installedAt = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    } | ConvertTo-Json
+    
+    Set-Content -Path $ConfigFile -Value $Config -Force
+    Write-Host ""
+    Write-Host "Configuration saved: $ConfigFile" -ForegroundColor Green
+}
+
+# Install to each selected version
+Write-Host ""
+Write-Host "Installing add-in..." -ForegroundColor Yellow
+
+foreach ($version in $SelectedVersion) {
+    $AddinsPath = "$env:APPDATA\Autodesk\Revit\Addins\$version"
+    
+    # Create addins folder if it doesn't exist
+    if (-not (Test-Path $AddinsPath)) {
+        Write-Host "Creating folder: $AddinsPath" -ForegroundColor Gray
+        New-Item -ItemType Directory -Path $AddinsPath -Force | Out-Null
+    }
+    
+    # Copy files
+    foreach ($file in $RequiredFiles) {
+        $sourcePath = Join-Path $ScriptDir $file
+        $destPath = Join-Path $AddinsPath $file
+        
+        Write-Host "  Copying $file to Revit $version..." -ForegroundColor Gray
+        Copy-Item -Path $sourcePath -Destination $destPath -Force
+    }
+    
+    Write-Host "  Installed to Revit $version" -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Installation Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Yellow
+Write-Host "  1. Start (or restart) Revit"
+Write-Host "  2. Look for the 'LOD 400' tab in the ribbon"
+Write-Host "  3. Click 'Upload Sheets' to get started"
+Write-Host "  4. Enter your API key when prompted"
+Write-Host ""
+Write-Host "Don't have an API key yet?" -ForegroundColor Yellow
+Write-Host "  Go to $ApiUrl/settings to generate one" -ForegroundColor Gray
+Write-Host ""
+Read-Host "Press Enter to exit"

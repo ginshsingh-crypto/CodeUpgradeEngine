@@ -9,6 +9,7 @@ import {
   Zap,
   ArrowRight,
   Layers,
+  Download,
 } from "lucide-react";
 
 const features = [
@@ -75,6 +76,13 @@ export default function Landing() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <Button variant="outline" asChild data-testid="button-download-addin">
+              <a href="/api/downloads/addin-compiled.zip" download>
+                <Download className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Download Add-in</span>
+                <span className="sm:hidden">Add-in</span>
+              </a>
+            </Button>
             <ThemeToggle />
             <Button asChild data-testid="button-login">
               <a href="/api/login">Sign In</a>

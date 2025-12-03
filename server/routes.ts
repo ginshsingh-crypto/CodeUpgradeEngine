@@ -689,5 +689,85 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // DOWNLOAD ROUTES (for Revit add-in distribution)
+  // ============================================
+
+  const fs = await import("fs");
+  const path = await import("path");
+  const archiver = await import("archiver");
+
+  app.get("/api/downloads/installer.ps1", (req, res) => {
+    const installerPath = path.default.join(process.cwd(), "revit-addin", "Install-LOD400.ps1");
+    
+    if (!fs.default.existsSync(installerPath)) {
+      return res.status(404).send("Installer not found");
+    }
+    
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Disposition", "attachment; filename=Install-LOD400.ps1");
+    res.sendFile(installerPath);
+  });
+
+  app.get("/api/downloads/addin-source.zip", (req, res) => {
+    const addinDir = path.default.join(process.cwd(), "revit-addin");
+    
+    if (!fs.default.existsSync(addinDir)) {
+      return res.status(404).send("Add-in source not found");
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin-Source.zip");
+
+    const archive = archiver.default("zip", { zlib: { level: 9 } });
+    archive.on("error", (err: Error) => {
+      res.status(500).send("Error creating archive");
+    });
+
+    archive.pipe(res);
+    archive.directory(addinDir, "LOD400-Addin");
+    archive.finalize();
+  });
+
+  app.get("/api/downloads/addin-compiled.zip", async (req, res) => {
+    const addinDir = path.default.join(process.cwd(), "revit-addin");
+    
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin.zip");
+
+    const archive = archiver.default("zip", { zlib: { level: 9 } });
+    archive.on("error", (err: Error) => {
+      res.status(500).send("Error creating archive");
+    });
+
+    archive.pipe(res);
+    
+    archive.file(path.default.join(addinDir, "Install-LOD400.ps1"), { name: "Install-LOD400.ps1" });
+    archive.file(path.default.join(addinDir, "LOD400Uploader", "LOD400Uploader.addin"), { name: "LOD400Uploader.addin" });
+    archive.file(path.default.join(addinDir, "README.md"), { name: "README.md" });
+    
+    const readmeContent = `LOD 400 Uploader - Revit Add-in
+================================
+
+INSTALLATION:
+1. Right-click "Install-LOD400.ps1" and select "Run with PowerShell"
+2. Follow the prompts to install
+3. Restart Revit
+
+NOTE: This package contains source code that needs to be compiled.
+To compile:
+1. Open LOD400Uploader/LOD400Uploader.csproj in Visual Studio 2022
+2. Update Revit API references to match your Revit version
+3. Build in Release mode
+4. Run the installer
+
+For pre-compiled versions, contact support.
+`;
+    archive.append(readmeContent, { name: "INSTALL.txt" });
+    
+    archive.directory(path.default.join(addinDir, "LOD400Uploader"), "LOD400Uploader");
+    archive.finalize();
+  });
+
   return httpServer;
 }

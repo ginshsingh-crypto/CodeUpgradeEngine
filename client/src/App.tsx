@@ -15,6 +15,7 @@ import ClientDashboard from "@/pages/ClientDashboard";
 import Orders from "@/pages/Orders";
 import Clients from "@/pages/Clients";
 import Settings from "@/pages/Settings";
+import Downloads from "@/pages/Downloads";
 import NotFound from "@/pages/not-found";
 
 function LoadingScreen() {
@@ -65,6 +66,7 @@ function ClientRouter() {
     <AuthenticatedLayout>
       <Switch>
         <Route path="/" component={ClientDashboard} />
+        <Route path="/downloads" component={Downloads} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>

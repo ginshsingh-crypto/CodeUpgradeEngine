@@ -186,25 +186,25 @@ The platform uses two authentication methods:
 
 ## Revit Add-in Setup
 
-### Step 1: Generate API Key
+### Option 1: Download from Website (Recommended)
+
+1. Go to your published website
+2. Sign in and navigate to **Downloads** page
+3. Click **Download ZIP** to get the add-in package
+4. Follow the on-screen installation instructions
+
+### Option 2: Manual Setup
+
+#### Step 1: Generate API Key
 
 1. Log in to the web dashboard
 2. Go to **Settings** → **API Keys**
 3. Click the **+** button to create a new key
 4. Copy and save the key (shown only once)
 
-### Step 2: Configure the Add-in
+#### Step 2: Update Revit References
 
-1. Open `revit-addin/LOD400Uploader/App.cs`
-2. Update the API URL:
-   ```csharp
-   ApiBaseUrl = Environment.GetEnvironmentVariable("LOD400_API_URL") 
-       ?? "https://your-deployed-url.replit.app";
-   ```
-
-### Step 3: Update Revit References
-
-In `LOD400Uploader.csproj`, update paths to match your Revit installation:
+In `revit-addin/LOD400Uploader/LOD400Uploader.csproj`, update paths to match your Revit installation:
 
 ```xml
 <Reference Include="RevitAPI">
@@ -215,27 +215,22 @@ In `LOD400Uploader.csproj`, update paths to match your Revit installation:
 </Reference>
 ```
 
-### Step 4: Build
+#### Step 3: Build
 
 1. Open `LOD400Uploader.csproj` in Visual Studio 2022
 2. Build in **Release** mode
 3. Output will be in `bin\Release\net48\`
 
-### Step 5: Install
+#### Step 4: Run the Installer
 
-Copy these files to your Revit add-ins folder:
-- `LOD400Uploader.dll`
-- `Newtonsoft.Json.dll`
-- `LOD400Uploader.addin`
+1. Copy the built DLLs (`LOD400Uploader.dll`, `Newtonsoft.Json.dll`) to the same folder as `Install-LOD400.ps1`
+2. Right-click `Install-LOD400.ps1` → **Run with PowerShell**
+3. Follow the prompts to select your Revit version
+4. The installer will copy files to the correct Revit Addins folder
 
-Add-ins folder location:
-```
-%APPDATA%\Autodesk\Revit\Addins\2024\
-```
+#### Step 5: Use
 
-### Step 6: Use
-
-1. Open Revit → find the **LOD 400** tab
+1. Restart Revit → find the **LOD 400** tab in the ribbon
 2. Click **Upload Sheets**
 3. Enter your API key when prompted
 4. Select sheets, pay, and upload

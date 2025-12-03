@@ -2,8 +2,10 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using System;
+using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
+using Newtonsoft.Json.Linq;
 
 namespace LOD400Uploader
 {
@@ -14,14 +16,19 @@ namespace LOD400Uploader
     {
         public static string ApiBaseUrl { get; private set; }
         public static string AuthToken { get; set; }
+        
+        private static readonly string ConfigDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "LOD400Uploader"
+        );
+        private static readonly string ConfigFile = Path.Combine(ConfigDir, "config.json");
 
         public Result OnStartup(UIControlledApplication application)
         {
             try
             {
-                // Set API base URL from environment or default
-                ApiBaseUrl = Environment.GetEnvironmentVariable("LOD400_API_URL") 
-                    ?? "https://YOUR-REPLIT-URL.replit.app";
+                // Load API URL from config file, environment, or default
+                ApiBaseUrl = LoadApiUrl();
 
                 // Create ribbon tab
                 string tabName = "LOD 400";
@@ -70,6 +77,68 @@ namespace LOD400Uploader
         public Result OnShutdown(UIControlledApplication application)
         {
             return Result.Succeeded;
+        }
+        
+        /// <summary>
+        /// Load API URL from config file, environment variable, or use default
+        /// </summary>
+        private string LoadApiUrl()
+        {
+            // First check environment variable
+            string envUrl = Environment.GetEnvironmentVariable("LOD400_API_URL");
+            if (!string.IsNullOrEmpty(envUrl))
+            {
+                return envUrl.TrimEnd('/');
+            }
+            
+            // Then check config file (created by installer)
+            if (File.Exists(ConfigFile))
+            {
+                try
+                {
+                    string json = File.ReadAllText(ConfigFile);
+                    JObject config = JObject.Parse(json);
+                    string configUrl = config["apiUrl"]?.ToString();
+                    if (!string.IsNullOrEmpty(configUrl))
+                    {
+                        return configUrl.TrimEnd('/');
+                    }
+                }
+                catch
+                {
+                    // Ignore config read errors, use default
+                }
+            }
+            
+            // Default URL - update this after deployment
+            return "https://lod400-platform.replit.app";
+        }
+        
+        /// <summary>
+        /// Save API URL to config file
+        /// </summary>
+        public static void SaveApiUrl(string url)
+        {
+            try
+            {
+                if (!Directory.Exists(ConfigDir))
+                {
+                    Directory.CreateDirectory(ConfigDir);
+                }
+                
+                JObject config = new JObject
+                {
+                    ["apiUrl"] = url.TrimEnd('/'),
+                    ["updatedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                };
+                
+                File.WriteAllText(ConfigFile, config.ToString());
+                ApiBaseUrl = url.TrimEnd('/');
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to save config: {ex.Message}");
+            }
         }
     }
 }

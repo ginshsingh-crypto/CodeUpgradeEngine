@@ -146,7 +146,7 @@ namespace LOD400Uploader.Views
             }
 
             UploadButton.IsEnabled = false;
-            ProgressPanel.Visibility = Visibility.Visible;
+            ProgressPanel.Visibility = System.Windows.Visibility.Visible;
 
             string packagePath = null;
 
@@ -204,7 +204,7 @@ namespace LOD400Uploader.Views
                         }
                         else
                         {
-                            ProgressPanel.Visibility = Visibility.Collapsed;
+                            ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                             UploadButton.IsEnabled = true;
                             MessageBox.Show(
                                 $"Order {order.Id} has been created but not paid.\n\n" +
@@ -297,7 +297,7 @@ namespace LOD400Uploader.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                ProgressPanel.Visibility = Visibility.Collapsed;
+                ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                 ProgressBar.IsIndeterminate = false;
                 UploadButton.IsEnabled = true;
             }

@@ -108,7 +108,7 @@ namespace LOD400Uploader.Services
                 {
                     sheets.Add(new
                     {
-                        id = sheetId.IntegerValue,
+                        id = sheetId.Value,
                         number = sheet.SheetNumber ?? "",
                         name = sheet.Name ?? "",
                         revisionNumber = GetParameterValue(sheet, BuiltInParameter.SHEET_CURRENT_REVISION),

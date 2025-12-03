@@ -34,7 +34,7 @@ INCLUDE_EXTENSIONS = {
 # Files to include even without extension
 INCLUDE_FILES = {
     'Dockerfile', 'Makefile', 'Procfile', '.env', '.env.example',
-    '.gitignore', '.dockerignore', '.prettierrc', '.eslintrc'
+    '.gitignore', '.dockerignore', '.prettierrc', '.eslintrc', '.replit'
 }
 
 

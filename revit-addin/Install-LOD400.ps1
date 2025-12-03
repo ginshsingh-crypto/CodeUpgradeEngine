@@ -40,13 +40,25 @@ foreach ($file in $RequiredFiles) {
 
 if ($MissingFiles.Count -gt 0) {
     Write-Host ""
-    Write-Host "ERROR: Missing required files:" -ForegroundColor Red
+    Write-Host "SETUP REQUIRED - Compilation Needed" -ForegroundColor Yellow
+    Write-Host "====================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Missing files:" -ForegroundColor Red
     foreach ($file in $MissingFiles) {
         Write-Host "  - $file" -ForegroundColor Red
     }
     Write-Host ""
-    Write-Host "Please make sure all add-in files are in the same folder as this script." -ForegroundColor Yellow
-    Write-Host "If you downloaded the source code, you need to compile it first in Visual Studio." -ForegroundColor Yellow
+    Write-Host "The add-in needs to be compiled before installation." -ForegroundColor White
+    Write-Host "This is a one-time setup that requires Visual Studio 2022." -ForegroundColor White
+    Write-Host ""
+    Write-Host "Steps to compile:" -ForegroundColor Cyan
+    Write-Host "  1. Open LOD400Uploader/LOD400Uploader.csproj in Visual Studio 2022"
+    Write-Host "  2. Update Revit API references to match your Revit version"
+    Write-Host "  3. Build in Release mode (Build -> Build Solution)"
+    Write-Host "  4. Copy the DLL files from bin/Release/net48/ to this folder"
+    Write-Host "  5. Run this installer again"
+    Write-Host ""
+    Write-Host "For detailed instructions, see: README.md" -ForegroundColor Gray
     Write-Host ""
     Read-Host "Press Enter to exit"
     exit 1

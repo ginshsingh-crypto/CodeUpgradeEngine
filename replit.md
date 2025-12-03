@@ -151,6 +151,14 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+**December 3, 2025**:
+- Added Downloads page for easy add-in distribution
+- Created PowerShell installer script (Install-LOD400.ps1) for automated setup
+- Updated App.cs to read API URL from config file for deployment flexibility
+- Added Download Add-in button to landing page header
+- Added Downloads link to sidebar navigation
+- Clear documentation that Visual Studio compilation is required
+
 **December 1, 2025**:
 - Added complete API Keys management UI to Settings page
 - Users can create, view, and delete API keys for Revit add-in authentication
@@ -179,13 +187,14 @@ The LOD 400 Delivery Platform MVP is now complete with:
 - API key authentication for Revit add-in
 - Order lifecycle management
 
-**Revit Add-in** (Source code):
+**Revit Add-in** (Source code distribution):
 - Complete C# source code for Visual Studio compilation
 - WPF dialogs for login, sheet selection, and status
 - API key authentication
 - Model packaging with workshared support
 - Upload with progress tracking
 - Payment flow via browser redirect
+- Note: C# compilation not possible on Replit; users download source and compile in Visual Studio. PowerShell installer provides clear guidance when DLLs are missing.
 
 **Tested Flows**:
 - User registration and authentication (Replit OIDC)

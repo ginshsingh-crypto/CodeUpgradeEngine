@@ -27,7 +27,8 @@ INCLUDE_EXTENSIONS = {
     '.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt',
     '.html', '.css', '.scss', '.yaml', '.yml', '.sh', '.sql',
     '.xml', '.toml', '.cfg', '.ini', '.go', '.rs', '.java',
-    '.c', '.cpp', '.h', '.hpp', '.env', '.gitignore', '.lock'
+    '.c', '.cpp', '.h', '.hpp', '.env', '.gitignore', '.lock',
+    '.cs', '.xaml', '.csproj', '.addin', '.sln', '.resx'  # C# / .NET files
 }
 
 # Files to include even without extension

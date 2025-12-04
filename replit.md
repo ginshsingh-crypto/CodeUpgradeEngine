@@ -68,11 +68,23 @@ Preferred communication style: Simple, everyday language.
 
 **User Authentication**: Replit Auth (OIDC) for web dashboard login with automatic user provisioning on first login.
 
-**API Authentication**: Custom API key system for Revit add-in integration:
-- API keys generated via web dashboard
+**Add-in Authentication** (Primary - Password-based):
+- Email/password login similar to BIMLogiq
+- Passwords hashed with bcrypt (cost factor 12)
+- Session tokens stored as SHA-256 hashes for O(1) lookups
+- 30-day session expiry with automatic renewal
+- Sessions stored in dedicated `addinSessions` table
+
+**API Authentication** (Legacy - Deprecated):
+- API keys still supported for backward compatibility
 - SHA-256 hashing for secure storage
-- Bearer token validation on API endpoints
-- Last-used timestamp tracking
+- X-API-Key header validation
+- Users encouraged to upgrade to password-based login
+
+**Rate Limiting**:
+- Login: 10 attempts per minute per IP+email combination
+- Registration: 5 attempts per minute per IP
+- Password endpoints: 20 attempts per minute per IP+userId
 
 **Session Management**: 7-day session TTL with httpOnly, secure cookies. PostgreSQL-backed session store for scalability.
 
@@ -150,6 +162,17 @@ Preferred communication style: Simple, everyday language.
 - Supports Revit 2024 (adaptable for 2020-2025)
 
 ## Recent Changes
+
+**December 4, 2025**:
+- Redesigned landing page with dark theme matching newbim.info aesthetic
+- Added gold/amber accents, hero section with stock image, feature sections
+- Implemented complete password-based authentication system for Revit add-in
+- Added addinSessions table with SHA-256 token hashing for O(1) lookups
+- Updated Revit add-in from API key to email/password login (with legacy API key backward compatibility)
+- Added rate limiting: IP+email for login (10/min), IP-only for registration (5/min), IP+userId for password endpoints (20/min)
+- Fixed critical security issues: proper session token storage, auth mode separation
+- SaveSession clears legacy apiKey field from config to prevent mixed auth state
+- Settings page now includes password management UI for add-in access
 
 **December 3, 2025**:
 - Added Downloads page for easy add-in distribution

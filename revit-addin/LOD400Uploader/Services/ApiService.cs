@@ -9,11 +9,20 @@ using System.Net.Http.Headers;
 
 namespace LOD400Uploader.Services
 {
+    public class LoginResult
+    {
+        public bool Success { get; set; }
+        public string Token { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
     public class ApiService
     {
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
+        private string _sessionToken;
         private string _apiKey;
+        private bool _useLegacyApiKey;
 
         public ApiService()
         {
@@ -22,23 +31,79 @@ namespace LOD400Uploader.Services
             _baseUrl = App.ApiBaseUrl;
         }
 
-        public void SetApiKey(string apiKey)
+        public void SetSessionToken(string token)
+        {
+            _sessionToken = token;
+            _apiKey = null;
+            _useLegacyApiKey = false;
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        public void ConfigureForLegacyApiKey(string apiKey)
         {
             _apiKey = apiKey;
+            _sessionToken = null;
+            _useLegacyApiKey = true;
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("X-API-Key", apiKey);
         }
 
-        public bool HasApiKey => !string.IsNullOrEmpty(_apiKey);
+        public bool HasSession => !string.IsNullOrEmpty(_sessionToken) || !string.IsNullOrEmpty(_apiKey);
 
-        public async Task<bool> ValidateApiKeyAsync(string apiKey)
+        public bool IsUsingLegacyApiKey => _useLegacyApiKey;
+
+        public async Task<LoginResult> LoginAsync(string email, string password)
         {
             try
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
-                    var response = await client.GetAsync($"{_baseUrl}/api/addin/validate");
+                    var loginRequest = new { email = email, password = password, deviceLabel = "Revit Add-in" };
+                    var json = JsonConvert.SerializeObject(loginRequest);
+                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                    var response = await client.PostAsync($"{_baseUrl}/api/auth/login", content);
+                    var responseJson = await response.Content.ReadAsStringAsync();
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var result = JsonConvert.DeserializeObject<dynamic>(responseJson);
+                        return new LoginResult
+                        {
+                            Success = true,
+                            Token = result.token
+                        };
+                    }
+                    else
+                    {
+                        var error = JsonConvert.DeserializeObject<dynamic>(responseJson);
+                        return new LoginResult
+                        {
+                            Success = false,
+                            ErrorMessage = error?.message ?? "Login failed"
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LoginResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        public async Task<bool> ValidateSessionAsync(string token)
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    var response = await client.GetAsync($"{_baseUrl}/api/auth/validate");
                     return response.IsSuccessStatusCode;
                 }
             }
@@ -48,9 +113,46 @@ namespace LOD400Uploader.Services
             }
         }
 
+        public async Task<LoginResult> ValidateApiKeyAsync(string apiKey)
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+                    var response = await client.GetAsync($"{_baseUrl}/api/addin/orders");
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return new LoginResult
+                        {
+                            Success = true,
+                            Token = apiKey
+                        };
+                    }
+                    else
+                    {
+                        return new LoginResult
+                        {
+                            Success = false,
+                            ErrorMessage = "Invalid or expired API key"
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LoginResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
         public async Task<CreateOrderResponse> CreateOrderAsync(int sheetCount)
         {
-            EnsureApiKey();
+            EnsureSession();
             var request = new CreateOrderRequest { SheetCount = sheetCount };
             var json = JsonConvert.SerializeObject(request);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -64,7 +166,7 @@ namespace LOD400Uploader.Services
 
         public async Task<Order> PollOrderStatusAsync(string orderId, int maxAttempts = 60, int delayMs = 2000)
         {
-            EnsureApiKey();
+            EnsureSession();
             for (int i = 0; i < maxAttempts; i++)
             {
                 var order = await GetOrderStatusAsync(orderId);
@@ -80,7 +182,7 @@ namespace LOD400Uploader.Services
 
         public async Task<string> GetUploadUrlAsync(string orderId, string fileName)
         {
-            EnsureApiKey();
+            EnsureSession();
             var request = new { fileName = fileName };
             var json = JsonConvert.SerializeObject(request);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -95,7 +197,7 @@ namespace LOD400Uploader.Services
 
         public async Task MarkUploadCompleteAsync(string orderId, string fileName, long fileSize, string uploadUrl)
         {
-            EnsureApiKey();
+            EnsureSession();
             var request = new UploadCompleteRequest
             {
                 FileName = fileName,
@@ -111,7 +213,7 @@ namespace LOD400Uploader.Services
 
         public async Task<Order> GetOrderStatusAsync(string orderId)
         {
-            EnsureApiKey();
+            EnsureSession();
             var response = await _httpClient.GetAsync($"{_baseUrl}/api/addin/orders/{orderId}/status");
             response.EnsureSuccessStatusCode();
 
@@ -121,7 +223,7 @@ namespace LOD400Uploader.Services
 
         public async Task<List<Order>> GetOrdersAsync()
         {
-            EnsureApiKey();
+            EnsureSession();
             var response = await _httpClient.GetAsync($"{_baseUrl}/api/addin/orders");
             response.EnsureSuccessStatusCode();
 
@@ -131,7 +233,7 @@ namespace LOD400Uploader.Services
 
         public async Task<DownloadUrlResponse> GetDownloadUrlAsync(string orderId)
         {
-            EnsureApiKey();
+            EnsureSession();
             var response = await _httpClient.GetAsync($"{_baseUrl}/api/addin/orders/{orderId}/download-url");
             response.EnsureSuccessStatusCode();
 
@@ -155,11 +257,11 @@ namespace LOD400Uploader.Services
             }
         }
 
-        private void EnsureApiKey()
+        private void EnsureSession()
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            if (!HasSession)
             {
-                throw new InvalidOperationException("API key not set. Please log in first.");
+                throw new InvalidOperationException("Session not active. Please sign in first.");
             }
         }
     }

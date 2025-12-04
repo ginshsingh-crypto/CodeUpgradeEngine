@@ -3,6 +3,7 @@ import {
   orders,
   files,
   apiKeys,
+  addinSessions,
   type User,
   type UpsertUser,
   type Order,
@@ -12,10 +13,12 @@ import {
   type OrderWithFiles,
   type ApiKey,
   type InsertApiKey,
+  type AddinSession,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, lt } from "drizzle-orm";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 export interface IStorage {
   // User operations
@@ -44,6 +47,18 @@ export interface IStorage {
   validateApiKey(rawKey: string): Promise<User | null>;
   deleteApiKey(id: string, userId: string): Promise<boolean>;
   updateApiKeyLastUsed(id: string): Promise<void>;
+  
+  // Password-based auth operations
+  getUserByEmail(email: string): Promise<User | null>;
+  createUserWithPassword(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
+  validateUserPassword(email: string, password: string): Promise<User | null>;
+  setUserPassword(userId: string, passwordHash: string): Promise<User | null>;
+  changeUserPassword(userId: string, currentPassword: string, newPasswordHash: string): Promise<{ success: boolean; error?: string }>;
+  
+  // Add-in session operations
+  createAddinSession(userId: string, rawToken: string, deviceLabel?: string): Promise<{ session: AddinSession; rawToken: string }>;
+  validateAddinSession(rawToken: string): Promise<User | null>;
+  deleteAddinSession(rawToken: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -81,6 +96,8 @@ export class DatabaseStorage implements IStorage {
         lastName: users.lastName,
         profileImageUrl: users.profileImageUrl,
         isAdmin: users.isAdmin,
+        passwordHash: users.passwordHash,
+        passwordSalt: users.passwordSalt,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
         orderCount: sql<number>`COALESCE(COUNT(${orders.id}), 0)::int`,
@@ -269,6 +286,130 @@ export class DatabaseStorage implements IStorage {
     await db.update(apiKeys)
       .set({ lastUsed: new Date() })
       .where(eq(apiKeys.id, id));
+  }
+
+  // Password-based auth operations
+  async getUserByEmail(email: string): Promise<User | null> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || null;
+  }
+
+  async createUserWithPassword(
+    email: string,
+    passwordHash: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<User> {
+    const [user] = await db.insert(users).values({
+      email,
+      passwordHash,
+      firstName: firstName || null,
+      lastName: lastName || null,
+    }).returning();
+    return user;
+  }
+
+  async validateUserPassword(email: string, password: string): Promise<User | null> {
+    const user = await this.getUserByEmail(email);
+    if (!user || !user.passwordHash) {
+      return null;
+    }
+
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return null;
+    }
+
+    return user;
+  }
+
+  async setUserPassword(userId: string, passwordHash: string): Promise<User | null> {
+    const [updated] = await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated || null;
+  }
+
+  async changeUserPassword(
+    userId: string,
+    currentPassword: string,
+    newPasswordHash: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      return { success: false, error: "User not found" };
+    }
+
+    if (!user.passwordHash) {
+      return { success: false, error: "No password set. Use set-password instead." };
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return { success: false, error: "Current password is incorrect" };
+    }
+
+    await db
+      .update(users)
+      .set({ passwordHash: newPasswordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return { success: true };
+  }
+
+  // Add-in session operations
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  async createAddinSession(
+    userId: string,
+    rawToken: string,
+    deviceLabel?: string
+  ): Promise<{ session: AddinSession; rawToken: string }> {
+    const tokenHash = this.hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    const [session] = await db.insert(addinSessions).values({
+      userId,
+      tokenHash,
+      expiresAt,
+      deviceLabel: deviceLabel || null,
+    }).returning();
+
+    return { session, rawToken };
+  }
+
+  async validateAddinSession(rawToken: string): Promise<User | null> {
+    const tokenHash = this.hashToken(rawToken);
+    
+    const [session] = await db.select()
+      .from(addinSessions)
+      .where(eq(addinSessions.tokenHash, tokenHash));
+    
+    if (!session) return null;
+
+    // Check if session has expired
+    if (new Date() > session.expiresAt) {
+      // Clean up expired session
+      await db.delete(addinSessions).where(eq(addinSessions.id, session.id));
+      return null;
+    }
+    
+    const user = await this.getUser(session.userId);
+    return user || null;
+  }
+
+  async deleteAddinSession(rawToken: string): Promise<boolean> {
+    const tokenHash = this.hashToken(rawToken);
+    
+    const result = await db.delete(addinSessions)
+      .where(eq(addinSessions.tokenHash, tokenHash))
+      .returning();
+    
+    return result.length > 0;
   }
 }
 

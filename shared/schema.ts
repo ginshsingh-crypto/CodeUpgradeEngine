@@ -43,6 +43,8 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   isAdmin: integer("is_admin").default(0),
+  passwordHash: varchar("password_hash"),
+  passwordSalt: varchar("password_salt"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -86,15 +88,33 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Add-in sessions table for password-based authentication
+export const addinSessions = pgTable("addin_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  tokenHash: varchar("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  deviceLabel: varchar("device_label"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   orders: many(orders),
   apiKeys: many(apiKeys),
+  addinSessions: many(addinSessions),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
   user: one(users, {
     fields: [apiKeys.userId],
+    references: [users.id],
+  }),
+}));
+
+export const addinSessionsRelations = relations(addinSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [addinSessions.userId],
     references: [users.id],
   }),
 }));
@@ -141,6 +161,11 @@ export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
   lastUsed: true,
 });
 
+export const insertAddinSessionSchema = createInsertSchema(addinSessions).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -150,6 +175,8 @@ export type InsertFile = z.infer<typeof insertFileSchema>;
 export type File = typeof files.$inferSelect;
 export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertAddinSession = z.infer<typeof insertAddinSessionSchema>;
+export type AddinSession = typeof addinSessions.$inferSelect;
 
 // API request/response types
 export const createOrderRequestSchema = z.object({

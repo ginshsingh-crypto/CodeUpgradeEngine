@@ -5,8 +5,58 @@ import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { createOrderRequestSchema, PRICE_PER_SHEET_SAR } from "@shared/schema";
 import { getUncachableStripeClient } from "./stripeClient";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { z } from "zod";
 
 const objectStorage = new ObjectStorageService();
+
+// ============================================
+// RATE LIMITING FOR AUTH ENDPOINTS
+// ============================================
+const authAttempts = new Map<string, { count: number; resetTime: number }>();
+
+function checkRateLimit(key: string, maxAttempts = 5, windowMs = 60000): boolean {
+  const now = Date.now();
+  const record = authAttempts.get(key);
+  
+  if (!record || now > record.resetTime) {
+    authAttempts.set(key, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+  
+  if (record.count >= maxAttempts) {
+    return false;
+  }
+  
+  record.count++;
+  return true;
+}
+
+function checkLoginRateLimit(ip: string, email: string): boolean {
+  const rateLimitKey = `login:${ip}-${email.toLowerCase()}`;
+  return checkRateLimit(rateLimitKey, 10, 60000);
+}
+
+function checkRegistrationRateLimit(ip: string): boolean {
+  const rateLimitKey = `register:${ip}`;
+  return checkRateLimit(rateLimitKey, 5, 60000);
+}
+
+function checkPasswordEndpointRateLimit(ip: string, userId?: string): boolean {
+  const rateLimitKey = userId ? `password:${ip}-${userId}` : `password:${ip}`;
+  return checkRateLimit(rateLimitKey, 20, 60000);
+}
+
+// Periodic cleanup of expired rate limit entries (every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  authAttempts.forEach((record, key) => {
+    if (now > record.resetTime) {
+      authAttempts.delete(key);
+    }
+  });
+}, 5 * 60 * 1000);
 
 export async function registerRoutes(
   httpServer: Server,
@@ -18,10 +68,260 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      res.json(user);
+      if (user) {
+        const { passwordHash, passwordSalt, ...safeUser } = user;
+        res.json({
+          ...safeUser,
+          hasPassword: !!passwordHash,
+        });
+      } else {
+        res.status(404).json({ message: "User not found" });
+      }
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // ============================================
+  // PASSWORD-BASED AUTH FOR REVIT ADD-IN
+  // ============================================
+
+  const registerSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(8),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+  });
+
+  const loginSchema = z.object({
+    email: z.string().email(),
+    password: z.string(),
+    deviceLabel: z.string().optional(),
+  });
+
+  // Helper to extract Bearer token from Authorization header
+  const extractBearerToken = (authHeader: string | undefined): string | null => {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null;
+    }
+    return authHeader.slice(7);
+  };
+
+  // Helper to return safe user info (no password)
+  const safeUserInfo = (user: any) => ({
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    profileImageUrl: user.profileImageUrl,
+    isAdmin: user.isAdmin,
+    createdAt: user.createdAt,
+  });
+
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      // Rate limiting: max 5 attempts per IP per minute (IP-only for registration)
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkRegistrationRateLimit(ip)) {
+        return res.status(429).json({ message: "Too many requests. Please try again later." });
+      }
+
+      const parsed = registerSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { email, password, firstName, lastName } = parsed.data;
+
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ message: "User with this email already exists" });
+      }
+
+      // Hash password with bcrypt (cost 12)
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Create user
+      const user = await storage.createUserWithPassword(email, passwordHash, firstName, lastName);
+
+      res.status(201).json({
+        message: "User registered successfully",
+        user: safeUserInfo(user),
+      });
+    } catch (error) {
+      console.error("Error registering user:", error);
+      res.status(500).json({ message: "Failed to register user" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { email, password, deviceLabel } = parsed.data;
+
+      // Rate limiting: max 10 attempts per IP+email per minute
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkLoginRateLimit(ip, email)) {
+        return res.status(429).json({ message: "Too many login attempts. Please try again later." });
+      }
+
+      // Validate credentials
+      const user = await storage.validateUserPassword(email, password);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Generate secure token
+      const rawToken = crypto.randomBytes(32).toString("hex");
+
+      // Create session
+      const { session } = await storage.createAddinSession(user.id, rawToken, deviceLabel);
+
+      res.json({
+        message: "Login successful",
+        token: rawToken,
+        expiresAt: session.expiresAt,
+        user: safeUserInfo(user),
+      });
+    } catch (error) {
+      console.error("Error logging in:", error);
+      res.status(500).json({ message: "Failed to login" });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      const token = extractBearerToken(req.headers.authorization);
+      
+      if (!token) {
+        return res.status(401).json({ message: "Authorization token required" });
+      }
+
+      const deleted = await storage.deleteAddinSession(token);
+      
+      if (!deleted) {
+        return res.status(401).json({ message: "Invalid or expired session" });
+      }
+
+      res.json({ message: "Logged out successfully" });
+    } catch (error) {
+      console.error("Error logging out:", error);
+      res.status(500).json({ message: "Failed to logout" });
+    }
+  });
+
+  app.get("/api/auth/validate", async (req, res) => {
+    try {
+      const token = extractBearerToken(req.headers.authorization);
+      
+      if (!token) {
+        return res.status(401).json({ message: "Authorization token required" });
+      }
+
+      const user = await storage.validateAddinSession(token);
+      
+      if (!user) {
+        return res.status(401).json({ message: "Invalid or expired session" });
+      }
+
+      res.json({
+        valid: true,
+        user: safeUserInfo(user),
+      });
+    } catch (error) {
+      console.error("Error validating session:", error);
+      res.status(500).json({ message: "Failed to validate session" });
+    }
+  });
+
+  // ============================================
+  // PASSWORD MANAGEMENT FOR WEB USERS
+  // ============================================
+
+  const setPasswordSchema = z.object({
+    password: z.string().min(8, "Password must be at least 8 characters"),
+  });
+
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+  });
+
+  app.post("/api/auth/set-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      // Rate limiting: max 20 attempts per IP+user per minute for password endpoints
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkPasswordEndpointRateLimit(ip, userId)) {
+        return res.status(429).json({ message: "Too many requests. Please try again later." });
+      }
+
+      const parsed = setPasswordSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (user.passwordHash) {
+        return res.status(400).json({ message: "Password already set. Use change-password instead." });
+      }
+
+      const { password } = parsed.data;
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      const updatedUser = await storage.setUserPassword(userId, passwordHash);
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Failed to set password" });
+      }
+
+      res.json({ message: "Password set successfully" });
+    } catch (error) {
+      console.error("Error setting password:", error);
+      res.status(500).json({ message: "Failed to set password" });
+    }
+  });
+
+  app.post("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      // Rate limiting: max 20 attempts per IP+user per minute for password endpoints
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkPasswordEndpointRateLimit(ip, userId)) {
+        return res.status(429).json({ message: "Too many requests. Please try again later." });
+      }
+
+      const parsed = changePasswordSchema.safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { currentPassword, newPassword } = parsed.data;
+      const newPasswordHash = await bcrypt.hash(newPassword, 12);
+
+      const result = await storage.changeUserPassword(userId, currentPassword, newPasswordHash);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error });
+      }
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ message: "Failed to change password" });
     }
   });
 
@@ -434,9 +734,10 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // API ROUTES FOR REVIT ADD-IN (API Key Auth)
+  // API ROUTES FOR REVIT ADD-IN (Bearer Token + API Key Auth)
   // ============================================
 
+  // Legacy API key middleware (for backward compatibility)
   const isApiKeyAuthenticated = async (req: any, res: any, next: any) => {
     const apiKey = req.headers["x-api-key"];
     
@@ -453,11 +754,38 @@ export async function registerRoutes(
     next();
   };
 
-  app.get("/api/addin/validate", isApiKeyAuthenticated, async (req: any, res) => {
+  // New middleware that supports both Bearer token and API key (with Bearer token priority)
+  const isAddinAuthenticated = async (req: any, res: any, next: any) => {
+    // First, try Bearer token from Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      const user = await storage.validateAddinSession(token);
+      if (user) {
+        req.apiUser = user;
+        return next();
+      }
+    }
+
+    // Fall back to API key for backward compatibility
+    const apiKey = req.headers["x-api-key"];
+    if (apiKey && typeof apiKey === "string") {
+      const user = await storage.validateApiKey(apiKey);
+      if (user) {
+        req.apiUser = user;
+        return next();
+      }
+    }
+
+    // Neither auth method worked
+    return res.status(401).json({ message: "Authentication required. Provide Bearer token or API key." });
+  };
+
+  app.get("/api/addin/validate", isAddinAuthenticated, async (req: any, res) => {
     res.json({ valid: true, userId: req.apiUser.id });
   });
 
-  app.post("/api/addin/create-order", isApiKeyAuthenticated, async (req: any, res) => {
+  app.post("/api/addin/create-order", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const parsed = createOrderRequestSchema.safeParse(req.body);
@@ -514,7 +842,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/addin/orders", isApiKeyAuthenticated, async (req: any, res) => {
+  app.get("/api/addin/orders", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const orders = await storage.getOrdersByUserId(userId);
@@ -525,7 +853,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/addin/orders/:orderId/status", isApiKeyAuthenticated, async (req: any, res) => {
+  app.get("/api/addin/orders/:orderId/status", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const { orderId } = req.params;
@@ -546,7 +874,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/addin/orders/:orderId/upload-url", isApiKeyAuthenticated, async (req: any, res) => {
+  app.post("/api/addin/orders/:orderId/upload-url", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const { orderId } = req.params;
@@ -577,7 +905,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/addin/orders/:orderId/upload-complete", isApiKeyAuthenticated, async (req: any, res) => {
+  app.post("/api/addin/orders/:orderId/upload-complete", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const { orderId } = req.params;
@@ -615,7 +943,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/addin/orders/:orderId/download-url", isApiKeyAuthenticated, async (req: any, res) => {
+  app.get("/api/addin/orders/:orderId/download-url", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;
       const { orderId } = req.params;

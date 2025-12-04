@@ -18,18 +18,17 @@ namespace LOD400Uploader.Views
 
         public bool IsAuthenticated { get; private set; }
         public ApiService AuthenticatedApiService => _apiService;
+        private bool _usedLegacyApiKey = false;
 
         public LoginDialog()
         {
             InitializeComponent();
             _apiService = new ApiService();
             
-            UrlText.Text = $"{App.ApiBaseUrl}/settings";
-            
-            LoadSavedApiKey();
+            Loaded += async (s, e) => await LoadSavedCredentialsAsync();
         }
 
-        private void LoadSavedApiKey()
+        private async System.Threading.Tasks.Task LoadSavedCredentialsAsync()
         {
             try
             {
@@ -37,10 +36,17 @@ namespace LOD400Uploader.Views
                 {
                     var json = File.ReadAllText(ConfigPath);
                     var config = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
-                    string savedKey = config?.apiKey;
-                    if (!string.IsNullOrEmpty(savedKey))
+                    
+                    string savedEmail = config?.email;
+                    if (!string.IsNullOrEmpty(savedEmail))
                     {
-                        ApiKeyTextBox.Text = savedKey;
+                        EmailTextBox.Text = savedEmail;
+                    }
+
+                    string savedApiKey = config?.apiKey;
+                    if (!string.IsNullOrEmpty(savedApiKey))
+                    {
+                        await TryLegacyApiKeyLogin(savedApiKey, savedEmail);
                     }
                 }
             }
@@ -49,7 +55,58 @@ namespace LOD400Uploader.Views
             }
         }
 
-        private void SaveApiKey(string apiKey)
+        private async System.Threading.Tasks.Task TryLegacyApiKeyLogin(string apiKey, string email)
+        {
+            LoginButton.IsEnabled = false;
+            LoginButton.Content = "Validating API key...";
+            ErrorText.Text = "Found saved API key, validating...";
+            ErrorText.Visibility = Visibility.Visible;
+
+            try
+            {
+                var result = await _apiService.ValidateApiKeyAsync(apiKey);
+                
+                if (result.Success)
+                {
+                    _apiService.ConfigureForLegacyApiKey(apiKey);
+                    
+                    SaveLegacyApiKey(apiKey, email);
+                    
+                    _usedLegacyApiKey = true;
+                    IsAuthenticated = true;
+                    
+                    MessageBox.Show(
+                        "Signed in using your saved API key.\n\n" +
+                        "Note: API keys are being phased out. We recommend upgrading to password-based login " +
+                        "in the Settings page at " + App.ApiBaseUrl + " for improved security.",
+                        "Signed In (Legacy API Key)",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information
+                    );
+                    
+                    DialogResult = true;
+                    Close();
+                    return;
+                }
+                else
+                {
+                    ErrorText.Text = "Saved API key is invalid or expired. Please sign in with your password.";
+                    ErrorText.Visibility = Visibility.Visible;
+                }
+            }
+            catch
+            {
+                ErrorText.Text = "Could not validate API key. Please sign in with your password.";
+                ErrorText.Visibility = Visibility.Visible;
+            }
+            finally
+            {
+                LoginButton.IsEnabled = true;
+                LoginButton.Content = "Sign In";
+            }
+        }
+
+        private void SaveLegacyApiKey(string apiKey, string email)
         {
             try
             {
@@ -59,7 +116,26 @@ namespace LOD400Uploader.Views
                     Directory.CreateDirectory(dir);
                 }
 
-                var config = new { apiKey = apiKey };
+                var config = new { apiKey = apiKey, email = email };
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
+                File.WriteAllText(ConfigPath, json);
+            }
+            catch
+            {
+            }
+        }
+
+        private void SaveSession(string sessionToken, string email)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(ConfigPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                var config = new { sessionToken = sessionToken, email = email, apiKey = (string)null };
                 var json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
                 File.WriteAllText(ConfigPath, json);
             }
@@ -70,33 +146,40 @@ namespace LOD400Uploader.Views
 
         private async void LoginButton_Click(object sender, RoutedEventArgs e)
         {
-            var apiKey = ApiKeyTextBox.Text?.Trim();
+            var email = EmailTextBox.Text?.Trim();
+            var password = PasswordBox.Password;
             
-            if (string.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrEmpty(email))
             {
-                ShowError("Please enter your API key.");
+                ShowError("Please enter your email address.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(password))
+            {
+                ShowError("Please enter your password.");
                 return;
             }
 
             LoginButton.IsEnabled = false;
-            LoginButton.Content = "Connecting...";
-            ErrorText.Visibility = Visibility.Collapsed;
+            LoginButton.Content = "Signing in...";
+            ErrorText.Visibility = System.Windows.Visibility.Collapsed;
 
             try
             {
-                bool isValid = await _apiService.ValidateApiKeyAsync(apiKey);
+                var loginResult = await _apiService.LoginAsync(email, password);
                 
-                if (isValid)
+                if (loginResult.Success)
                 {
-                    _apiService.SetApiKey(apiKey);
-                    SaveApiKey(apiKey);
+                    _apiService.SetSessionToken(loginResult.Token);
+                    SaveSession(loginResult.Token, email);
                     IsAuthenticated = true;
                     DialogResult = true;
                     Close();
                 }
                 else
                 {
-                    ShowError("Invalid API key. Please check and try again.");
+                    ShowError(loginResult.ErrorMessage ?? "Invalid email or password. Please try again.");
                 }
             }
             catch (Exception ex)
@@ -106,14 +189,14 @@ namespace LOD400Uploader.Views
             finally
             {
                 LoginButton.IsEnabled = true;
-                LoginButton.Content = "Connect";
+                LoginButton.Content = "Sign In";
             }
         }
 
         private void ShowError(string message)
         {
             ErrorText.Text = message;
-            ErrorText.Visibility = Visibility.Visible;
+            ErrorText.Visibility = System.Windows.Visibility.Visible;
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -122,13 +205,28 @@ namespace LOD400Uploader.Views
             Close();
         }
 
-        private void UrlText_MouseDown(object sender, MouseButtonEventArgs e)
+        private void SignUpLink_MouseDown(object sender, MouseButtonEventArgs e)
         {
             try
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = UrlText.Text,
+                    FileName = $"{App.ApiBaseUrl}/register",
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        private void ForgotPasswordLink_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = $"{App.ApiBaseUrl}/forgot-password",
                     UseShellExecute = true
                 });
             }

@@ -30,7 +30,7 @@ namespace LOD400Uploader.Views
 
         private async System.Threading.Tasks.Task InitializeAsync()
         {
-            if (!_apiService.HasApiKey)
+            if (!_apiService.HasSession)
             {
                 var loginDialog = new LoginDialog();
                 if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)

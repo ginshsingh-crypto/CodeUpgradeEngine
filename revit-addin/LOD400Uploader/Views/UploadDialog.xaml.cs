@@ -136,7 +136,7 @@ namespace LOD400Uploader.Views
                 return;
             }
 
-            if (!_apiService.HasApiKey)
+            if (!_apiService.HasSession)
             {
                 var loginDialog = new LoginDialog();
                 if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)

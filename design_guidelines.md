@@ -1,142 +1,148 @@
-# Design Guidelines: LOD 400 Delivery Platform
+# Design Guidelines: LOD 400 BIM Services Platform
 
 ## Design Approach
 
-**System Selection**: Modern SaaS Dashboard Pattern (inspired by Linear, Vercel, Stripe)
+**Dual-System Architecture**: Professional B2B marketing site (inspired by enterprise SaaS: Vercel, Linear, Stripe) + functional admin dashboard
 
-**Rationale**: This is a professional B2B utility application requiring clarity, efficiency, and trust. The design prioritizes information hierarchy, workflow optimization, and enterprise credibility over visual flair.
+**Rationale**: Marketing pages establish trust and credibility for engineering professionals with dramatic dark aesthetics; admin dashboard prioritizes workflow efficiency with clean, light interface.
 
 ## Core Design Elements
 
 ### A. Typography
 
-**Font Stack**: Inter (via Google Fonts CDN)
-- **Headings**: 600 weight, tight letter-spacing (-0.02em)
-  - Page titles: text-2xl to text-3xl
-  - Section headers: text-lg to text-xl
-- **Body**: 400 weight, comfortable line-height (1.6)
-  - Primary text: text-base
-  - Secondary/meta text: text-sm
-  - Small labels: text-xs
-- **Data/Numbers**: 500 weight (for order IDs, prices, counts)
-- **Buttons/CTAs**: 500 weight, uppercase for primary actions
+**Font Stack**: Inter (Google Fonts CDN)
+- **Marketing Headlines**: 700 weight, tight spacing (-0.03em)
+  - Hero: text-5xl to text-6xl
+  - Section headers: text-3xl to text-4xl
+- **Dashboard/UI Text**: 
+  - Headings: 600 weight, text-2xl to text-3xl
+  - Body: 400 weight, text-base, line-height 1.6
+  - Data/metrics: 500 weight
+  - Labels: text-sm to text-xs
+- **CTAs**: 600 weight, uppercase tracking-wide
 
 ### B. Layout System
 
-**Spacing Primitives**: Consistent use of Tailwind units: 2, 4, 6, 8, 12, 16, 24
-- Component padding: p-4 to p-6
-- Section spacing: space-y-6 to space-y-8
-- Card internal spacing: p-6
-- Form field gaps: space-y-4
-- Button padding: px-4 py-2 (standard), px-6 py-3 (large)
+**Spacing Primitives**: Tailwind units 4, 6, 8, 12, 16, 24, 32
+- Marketing sections: py-24 to py-32 (desktop), py-12 to py-16 (mobile)
+- Dashboard components: p-4 to p-6
+- Card padding: p-6 to p-8
+- Grid gaps: gap-8 to gap-12
 
 **Container Strategy**:
-- Admin dashboard: Full-width with sidebar (fixed 64 width on desktop)
-- Content area: max-w-7xl with px-4 to px-8
-- Forms/modals: max-w-2xl centered
-- Tables: Full container width with horizontal scroll on mobile
+- Marketing: max-w-7xl with px-6 to px-8
+- Dashboard: Full-width with fixed sidebar (w-64)
+- Forms: max-w-2xl centered
 
 ### C. Component Library
 
-**Navigation**:
-- Fixed sidebar (desktop): Logo at top, navigation items with icons, admin info at bottom
-- Mobile: Collapsible hamburger menu with overlay
-- Top bar: Breadcrumbs, search (if needed), notifications icon, profile dropdown
+**Marketing Components**:
 
-**Dashboard Cards**:
-- Stats cards: Grid layout (grid-cols-1 md:grid-cols-3), rounded-lg borders
-- Each card: Icon (top-left), metric (large number), label (small text), trend indicator
-- Subtle hover elevation (shadow-sm to shadow-md transition)
+*Hero Section*:
+- Full-viewport height (min-h-screen), hero image with dark gradient overlay (from transparent to black/90)
+- Centered content with max-w-4xl
+- Headline + subheadline + dual CTAs (primary: "GET IN TOUCH NOW", secondary: "View Pricing")
+- Buttons with backdrop-blur-md backgrounds over images
+- Trust indicator below CTAs: "Trusted by 50+ Engineering Firms"
 
-**Data Tables**:
-- Striped rows for readability (alternating subtle backgrounds)
-- Sticky header on scroll
-- Row hover state (subtle background change)
-- Status badges: Pill-shaped, color-coded (Pending: amber, Paid: blue, Complete: green)
-- Actions column: Icon buttons (download, view, edit, delete)
-- Pagination: Bottom-right, showing "1-10 of 234 results"
+*Feature Sections*:
+- 3-column grid (grid-cols-1 md:grid-cols-3) with feature cards
+- Each card: Large icon (w-12 h-12, gold accent), heading (text-xl), description, optional "Learn More" link
+- Alternating dark/darker sections for visual rhythm
 
-**Forms**:
-- Full-width inputs with consistent height (h-10)
-- Labels above inputs (text-sm, font-medium)
-- Input states: default, focus (ring-2), error (red border), disabled (opacity-50)
-- File upload: Drag-and-drop zone with dashed border, icon, and instructions
-- Submit buttons: Right-aligned, primary style
+*Services Showcase*:
+- 2-column layout (image left, content right, alternating)
+- Large service images with subtle border glow
+- Numbered list of capabilities with checkmarks
+- "From 150 SAR/sheet" pricing highlight
 
-**Modals/Overlays**:
-- Centered overlay with backdrop (backdrop-blur-sm, bg-black/50)
-- Card style: rounded-lg, max-w-lg to max-w-2xl
-- Header with title and close button (X icon top-right)
-- Content area with appropriate padding
-- Footer with action buttons (Cancel left, Primary right)
+*Social Proof*:
+- Client logos grid (grid-cols-3 md:grid-cols-6, grayscale with hover color)
+- Stats row: 4-column metrics (Projects Completed, Sheets Delivered, etc.)
+- Testimonial cards with company info
 
-**Buttons**:
-- Primary: Solid fill, rounded-md, shadow-sm
-- Secondary: Border style with transparent background
-- Danger: Red variant for destructive actions
-- Icon-only: Square aspect, centered icon
-- Loading state: Spinner icon, disabled opacity
+*Contact/CTA Section*:
+- Dark background with gradient accent
+- Centered heading + description
+- Contact form (2-column on desktop: form left, contact info right)
+- Form fields: Name, Email, Company, Project Details (textarea), Sheet Count
+- Prominent submit button
 
-**Status Indicators**:
-- Progress bars: Rounded-full, gradient fill showing percentage
-- Loading spinners: Centered with optional text below
-- Toast notifications: Top-right corner, slide-in animation, auto-dismiss
+**Dashboard Components** (Light Theme):
 
-**Empty States**:
-- Centered icon (large, muted)
-- Heading and description text
-- Primary action button below
+*Sidebar Navigation*:
+- Fixed left, logo top, nav items with icons (Heroicons)
+- Active state: subtle background + left border accent
+- Admin profile card bottom
 
-### D. Application Structure
+*Stats Dashboard*:
+- 4-column grid: Total Orders, Pending Payment, In Progress, Completed
+- Each stat card: large number, label, trend indicator, icon
 
-**Admin Dashboard Layout**:
-1. **Sidebar** (fixed left, 64 units wide):
-   - Logo/branding at top
-   - Navigation links: Dashboard, Orders, Settings
-   - Admin profile card at bottom
-   
-2. **Main Content Area**:
-   - **Header Section**: Page title, optional action button (e.g., "New Order" - if manual creation needed)
-   - **Stats Overview**: 4-column grid showing: Total Orders, Pending, In Progress, Completed
-   - **Orders Table**: Filterable/sortable table with columns: Order ID, Client Email, Sheet Count, Price, Status, Upload Date, Actions
-   - Each row action: View details, Download inputs, Upload outputs, Mark complete
+*Orders Table*:
+- Columns: Order ID, Client, Sheets, Price, Status, Date, Actions
+- Status badges: pill-shaped (Pending: amber, Paid: blue, Processing: purple, Complete: green)
+- Row actions: View, Download, Upload, Mark Complete
+- Striped rows with hover state
 
-3. **Order Detail View** (modal or dedicated page):
-   - Order summary card (ID, date, status, price)
-   - Client information section
-   - Files section: Input files (download button), Output files (upload interface)
-   - Status timeline showing: Created → Paid → Uploaded → Processing → Complete
-   - Action buttons: Download all, Upload deliverables, Mark complete, Send notification
+*File Management*:
+- Drag-and-drop upload zone with dashed border
+- Progress bars during upload
+- File list with download/delete actions
 
-**File Management Interface**:
-- Upload zone: Large, centered, with progress bar during upload
-- File list: Name, size, upload date, download/delete actions
-- Chunked upload progress: Real-time percentage indicator
+*Order Detail Modal*:
+- Overlay with backdrop-blur
+- Card (max-w-3xl): Order summary, client info, file sections
+- Status timeline: horizontal progress indicator
+- Action buttons footer (right-aligned)
 
-**Payment/Order Flow** (what client sees - can be simple):
-- Order confirmation page showing: Sheet count, total price, "Pay with Stripe" button
-- Post-payment success page with order ID and status check link
-- Order status page: Timeline view, file download when complete
+### D. Responsive Behavior
 
-### E. Trust & Professional Elements
+**Desktop (lg:)**: Multi-column layouts, fixed sidebar, full tables
+**Tablet (md:)**: 2-column grids, collapsible sidebar
+**Mobile (base)**: Single column, stacked cards, hamburger menu, simplified tables
 
-- Security badges: "Secure Payment via Stripe" near checkout
-- Professional email templates: Branded header, clear order details, prominent CTA
-- Error handling: Friendly but informative messages, never raw errors
-- Loading states: Always show progress, never leave users uncertain
+### E. Visual Treatments
 
-### F. Responsive Behavior
+**Marketing (Dark Theme)**:
+- Base: near-black backgrounds
+- Accents: white text + gold highlights (#F59E0B range)
+- Borders: subtle white/10 with glow effects
+- Sections: alternating opacity backgrounds for depth
 
-**Desktop (lg:)**: Full sidebar, multi-column tables, 3-4 column stat grids
-**Tablet (md:)**: Collapsible sidebar, 2-column grids, scrollable tables
-**Mobile (base)**: Hidden sidebar (hamburger menu), single-column layouts, stacked cards, simplified table views with expandable rows
+**Dashboard (Light Theme)**:
+- Base: white/gray-50 backgrounds
+- Borders: gray-200
+- Hover states: gray-100
+- Focus rings: blue accent
 
 ## Images
 
-**No hero images required** - this is a functional dashboard application, not a marketing site. Use icons throughout for visual interest:
-- **Dashboard icons**: Chart/graph icons for stats cards (from Heroicons)
-- **File type icons**: Document/folder icons in file lists
-- **Empty state illustrations**: Simple line-art style icons (large, centered)
-- **Logo placeholder**: Top-left of sidebar (can be text-based initially)
+**Hero Section**: 
+Large dramatic image of BIM/MEP engineering workspace - either modern architectural visualization, detailed Revit models, or professional engineer reviewing technical drawings on large monitors. Image should convey precision and expertise. Apply dark gradient overlay (from-transparent via-black/60 to-black/90) to ensure text readability.
 
-Focus is on clarity and efficiency, not visual storytelling.
+**Service Showcase Images** (3-4 sections):
+1. Detailed LOD 400 MEP model visualization
+2. Before/after comparison of model upgrades
+3. Team collaboration on BIM project
+4. Technical drawing/clash detection screenshot
+
+**Feature Section Icons**: 
+Use Heroicons for features (DocumentCheck, CubeTransparent, ChartBar, ShieldCheck, etc.) - large size with gold accent color
+
+**Dashboard**: 
+Icon-only interface (no hero images). Use Heroicons throughout for navigation, file types, status indicators.
+
+**Trust Elements**:
+Industry certification badges/logos if applicable (Autodesk partner, etc.)
+
+## Content Sections (Marketing Site)
+
+1. **Hero**: Headline, subheadline, dual CTAs, trust indicator
+2. **Services**: LOD 400 upgrade process, pricing highlight, capabilities
+3. **Features**: 3-column grid (Fast Turnaround, Quality Assurance, Expert Team, Clash Detection, etc.)
+4. **Process**: 4-step workflow visualization
+5. **Social Proof**: Stats + client testimonials
+6. **Pricing**: Clear 150 SAR/sheet highlight with what's included
+7. **Contact/CTA**: Form + contact info + map/location
+8. **Footer**: Quick links, services list, contact info, social links, newsletter signup

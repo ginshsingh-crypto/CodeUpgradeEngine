@@ -39,10 +39,11 @@ Preferred communication style: Simple, everyday language.
 - `/api/admin/*` - Administrative functions (orders, clients, file uploads)
 - `/api/stripe/webhook` - Payment processing webhooks
 - `/api/files/:id/download` - Secure file downloads
+- `/api/addin/*` - Revit add-in endpoints (Bearer token auth)
 
 **Authentication**: Replit Auth (OpenID Connect) with Passport.js strategy. Session-based authentication using express-session with PostgreSQL session store.
 
-**Authorization**: Role-based access control with `isAdmin` flag. Middleware functions (`isAuthenticated`, `isAdmin`) protect routes.
+**Authorization**: Role-based access control with `isAdmin` flag. Middleware functions (`isAuthenticated`, `isAdmin`, `isAddinAuthenticated`) protect routes.
 
 **File Uploads**: Uppy file uploader with AWS S3-compatible storage through Google Cloud Storage (via Replit's Object Storage sidecar). Large file support (up to 500MB) with multipart upload capability.
 
@@ -53,10 +54,10 @@ Preferred communication style: Simple, everyday language.
 **ORM**: Drizzle ORM with schema-first design approach. Schema co-located in `shared/schema.ts` for type sharing between client and server.
 
 **Database Schema Design**:
-- `users` - User profiles with Replit Auth integration (id, email, firstName, lastName, isAdmin)
+- `users` - User profiles with Replit Auth integration (id, email, firstName, lastName, isAdmin, passwordHash)
 - `orders` - Order records with status tracking (pending → paid → uploaded → processing → complete)
 - `files` - File metadata and storage paths (type: input/output, orderId foreign key)
-- `api_keys` - API authentication for Revit add-in (hashed keys, last used tracking)
+- `addinSessions` - Session tokens for Revit add-in authentication (SHA-256 hashed tokens)
 - `sessions` - Session persistence for Replit Auth
 - Stripe schema managed by stripe-replit-sync package
 
@@ -68,18 +69,14 @@ Preferred communication style: Simple, everyday language.
 
 **User Authentication**: Replit Auth (OIDC) for web dashboard login with automatic user provisioning on first login.
 
-**Add-in Authentication** (Primary - Password-based):
-- Email/password login similar to BIMLogiq
+**Add-in Authentication** (Email/Password):
+- Users sign in to web dashboard with Replit Auth, then set an add-in password in Settings
+- Email/password login from the Revit add-in
 - Passwords hashed with bcrypt (cost factor 12)
 - Session tokens stored as SHA-256 hashes for O(1) lookups
 - 30-day session expiry with automatic renewal
 - Sessions stored in dedicated `addinSessions` table
-
-**API Authentication** (Legacy - Deprecated):
-- API keys still supported for backward compatibility
-- SHA-256 hashing for secure storage
-- X-API-Key header validation
-- Users encouraged to upgrade to password-based login
+- Bearer token authentication for all add-in API requests
 
 **Rate Limiting**:
 - Login: 10 attempts per minute per IP+email combination
@@ -157,7 +154,7 @@ Preferred communication style: Simple, everyday language.
 
 **Revit Add-in** (C#/.NET Framework 4.8):
 - Located in `/revit-addin` directory
-- Communicates with platform via REST API using email/password authentication
+- Communicates with platform via REST API using email/password authentication (Bearer tokens)
 - Default API URL: https://deepnewbim.com (configurable via config file or environment)
 - Handles sheet selection, model packaging, upload progress
 - Supports Revit 2024 (adaptable for 2020-2025)
@@ -165,12 +162,15 @@ Preferred communication style: Simple, everyday language.
 ## Recent Changes
 
 **December 5, 2025**:
+- **BREAKING**: Removed all API key authentication - email/password is now the only authentication method for the Revit add-in
+- Removed API key endpoints from server (/api/user/api-keys)
+- Removed API Keys UI from Settings page
+- Simplified isAddinAuthenticated middleware to only accept Bearer tokens
+- Updated Revit add-in ApiService.cs to remove all API key methods
+- Simplified LoginDialog.xaml.cs to remove legacy API key validation
 - Fixed Uppy v5 compatibility: changed uppy.close() to uppy.destroy() in ObjectUploader
 - Fixed broken download link in ClientDashboard (now points to /downloads page)
 - Updated default API URL in Revit add-in to https://deepnewbim.com
-- Updated installer script to reference password login instead of legacy API keys
-- Fixed add-in LoginDialog: "Sign Up" now opens main site, "Forgot Password" shows instructions and opens Settings
-- Comprehensive add-in code review completed - all flows verified
 - All E2E tests passing: client flow, admin flow, order lifecycle
 
 **December 4, 2025**:
@@ -178,10 +178,7 @@ Preferred communication style: Simple, everyday language.
 - Added gold/amber accents, hero section with stock image, feature sections
 - Implemented complete password-based authentication system for Revit add-in
 - Added addinSessions table with SHA-256 token hashing for O(1) lookups
-- Updated Revit add-in from API key to email/password login (with legacy API key backward compatibility)
 - Added rate limiting: IP+email for login (10/min), IP-only for registration (5/min), IP+userId for password endpoints (20/min)
-- Fixed critical security issues: proper session token storage, auth mode separation
-- SaveSession clears legacy apiKey field from config to prevent mixed auth state
 - Settings page now includes password management UI for add-in access
 
 **December 3, 2025**:
@@ -190,15 +187,6 @@ Preferred communication style: Simple, everyday language.
 - Updated App.cs to read API URL from config file for deployment flexibility
 - Added Download Add-in button to landing page header
 - Added Downloads link to sidebar navigation
-- Clear documentation that Visual Studio compilation is required
-
-**December 1, 2025**:
-- Added complete API Keys management UI to Settings page
-- Users can create, view, and delete API keys for Revit add-in authentication
-- Keys are SHA-256 hashed in database with only prefix visible after creation
-- Fixed Uppy CSS imports for v5.x compatibility (using subpath imports)
-- State management improved for API key creation (proper reset before new creation)
-- Clipboard error handling added for copy functionality
 
 ## MVP Completion Status
 
@@ -209,7 +197,7 @@ The LOD 400 Delivery Platform MVP is now complete with:
 - User dashboard with order overview
 - Order management with status tracking
 - Admin dashboard for order processing
-- API Keys management UI in Settings
+- Password management UI in Settings for add-in login
 - Dark/light theme support
 - Responsive design
 
@@ -217,13 +205,13 @@ The LOD 400 Delivery Platform MVP is now complete with:
 - RESTful API with role-based access control
 - Stripe payment integration with managed webhooks
 - Object storage for file uploads/downloads
-- API key authentication for Revit add-in
+- Email/password authentication for Revit add-in (Bearer tokens)
 - Order lifecycle management
 
 **Revit Add-in** (Source code distribution):
 - Complete C# source code for Visual Studio compilation
 - WPF dialogs for login, sheet selection, and status
-- API key authentication
+- Email/password authentication (Bearer token)
 - Model packaging with workshared support
 - Upload with progress tracking
 - Payment flow via browser redirect
@@ -231,7 +219,7 @@ The LOD 400 Delivery Platform MVP is now complete with:
 
 **Tested Flows**:
 - User registration and authentication (Replit OIDC)
-- API key creation and validation
+- Password-based add-in login
 - Order creation and status tracking
 - Payment processing via Stripe
 - Admin file upload and order management

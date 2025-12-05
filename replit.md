@@ -157,11 +157,19 @@ Preferred communication style: Simple, everyday language.
 
 **Revit Add-in** (C#/.NET Framework 4.8):
 - Located in `/revit-addin` directory
-- Communicates with platform via REST API using API keys
+- Communicates with platform via REST API using email/password authentication
+- Default API URL: https://deepnewbim.com (configurable via config file or environment)
 - Handles sheet selection, model packaging, upload progress
 - Supports Revit 2024 (adaptable for 2020-2025)
 
 ## Recent Changes
+
+**December 5, 2025**:
+- Fixed Uppy v5 compatibility: changed uppy.close() to uppy.destroy() in ObjectUploader
+- Fixed broken download link in ClientDashboard (now points to /downloads page)
+- Updated default API URL in Revit add-in to https://deepnewbim.com
+- Updated installer script to reference password login instead of legacy API keys
+- All E2E tests passing: client flow, admin flow, order lifecycle
 
 **December 4, 2025**:
 - Redesigned landing page with dark theme matching newbim.info aesthetic

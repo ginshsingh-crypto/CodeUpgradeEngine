@@ -681,88 +681,10 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // API KEY MANAGEMENT (for Revit add-in users)
+  // API ROUTES FOR REVIT ADD-IN (Bearer Token Auth)
   // ============================================
 
-  app.get("/api/user/api-keys", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const keys = await storage.getApiKeysByUserId(userId);
-      const safeKeys = keys.map(k => ({
-        id: k.id,
-        name: k.name,
-        lastUsed: k.lastUsed,
-        createdAt: k.createdAt,
-      }));
-      res.json(safeKeys);
-    } catch (error) {
-      console.error("Error fetching API keys:", error);
-      res.status(500).json({ message: "Failed to fetch API keys" });
-    }
-  });
-
-  app.post("/api/user/api-keys", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { name } = req.body;
-      
-      if (!name || typeof name !== "string") {
-        return res.status(400).json({ message: "Name is required" });
-      }
-
-      const { apiKey, rawKey } = await storage.createApiKey(userId, name);
-      res.status(201).json({
-        id: apiKey.id,
-        name: apiKey.name,
-        key: rawKey,
-        createdAt: apiKey.createdAt,
-      });
-    } catch (error) {
-      console.error("Error creating API key:", error);
-      res.status(500).json({ message: "Failed to create API key" });
-    }
-  });
-
-  app.delete("/api/user/api-keys/:keyId", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { keyId } = req.params;
-      
-      const deleted = await storage.deleteApiKey(keyId, userId);
-      if (!deleted) {
-        return res.status(404).json({ message: "API key not found" });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting API key:", error);
-      res.status(500).json({ message: "Failed to delete API key" });
-    }
-  });
-
-  // ============================================
-  // API ROUTES FOR REVIT ADD-IN (Bearer Token + API Key Auth)
-  // ============================================
-
-  // Legacy API key middleware (for backward compatibility)
-  const isApiKeyAuthenticated = async (req: any, res: any, next: any) => {
-    const apiKey = req.headers["x-api-key"];
-    
-    if (!apiKey || typeof apiKey !== "string") {
-      return res.status(401).json({ message: "API key required" });
-    }
-
-    const user = await storage.validateApiKey(apiKey);
-    if (!user) {
-      return res.status(401).json({ message: "Invalid API key" });
-    }
-
-    req.apiUser = user;
-    next();
-  };
-
-  // New middleware that supports both Bearer token and API key (with Bearer token priority)
   const isAddinAuthenticated = async (req: any, res: any, next: any) => {
-    // First, try Bearer token from Authorization header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
@@ -773,18 +695,7 @@ export async function registerRoutes(
       }
     }
 
-    // Fall back to API key for backward compatibility
-    const apiKey = req.headers["x-api-key"];
-    if (apiKey && typeof apiKey === "string") {
-      const user = await storage.validateApiKey(apiKey);
-      if (user) {
-        req.apiUser = user;
-        return next();
-      }
-    }
-
-    // Neither auth method worked
-    return res.status(401).json({ message: "Authentication required. Provide Bearer token or API key." });
+    return res.status(401).json({ message: "Authentication required. Please sign in with your email and password." });
   };
 
   app.get("/api/addin/validate", isAddinAuthenticated, async (req: any, res) => {

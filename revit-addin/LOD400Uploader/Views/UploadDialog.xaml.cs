@@ -138,10 +138,19 @@ namespace LOD400Uploader.Views
 
             if (!_apiService.HasSession)
             {
-                var loginDialog = new LoginDialog();
-                if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                // Try loading saved session from config first
+                _apiService.LoadFromConfig();
+                
+                // If still no session, show login dialog
+                if (!_apiService.HasSession)
                 {
-                    return;
+                    var loginDialog = new LoginDialog();
+                    if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                    {
+                        return;
+                    }
+                    // Reload from config after successful login
+                    _apiService.LoadFromConfig();
                 }
             }
 

@@ -32,19 +32,24 @@ namespace LOD400Uploader.Views
         {
             if (!_apiService.HasSession)
             {
-                var loginDialog = new LoginDialog();
-                if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                // Try loading saved session from config first
+                _apiService.LoadFromConfig();
+                
+                // If still no session, show login dialog
+                if (!_apiService.HasSession)
                 {
-                    Close();
-                    return;
+                    var loginDialog = new LoginDialog();
+                    if (loginDialog.ShowDialog() != true || !loginDialog.IsAuthenticated)
+                    {
+                        Close();
+                        return;
+                    }
+                    // Reload from config after successful login
+                    _apiService.LoadFromConfig();
                 }
-                _isAuthenticated = true;
             }
-            else
-            {
-                _isAuthenticated = true;
-            }
-
+            
+            _isAuthenticated = true;
             await LoadOrdersAsync();
         }
 

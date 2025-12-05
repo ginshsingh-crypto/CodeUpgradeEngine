@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -23,12 +24,48 @@ namespace LOD400Uploader.Services
         private string _sessionToken;
         private string _apiKey;
         private bool _useLegacyApiKey;
+        
+        private static readonly string ConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "LOD400Uploader",
+            "config.json"
+        );
 
         public ApiService()
         {
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(10);
             _baseUrl = App.ApiBaseUrl;
+        }
+        
+        public bool LoadFromConfig()
+        {
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    var json = File.ReadAllText(ConfigPath);
+                    var config = JsonConvert.DeserializeObject<dynamic>(json);
+                    
+                    string sessionToken = config?.sessionToken;
+                    if (!string.IsNullOrEmpty(sessionToken))
+                    {
+                        SetSessionToken(sessionToken);
+                        return true;
+                    }
+                    
+                    string apiKey = config?.apiKey;
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        ConfigureForLegacyApiKey(apiKey);
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
         }
 
         public void SetSessionToken(string token)

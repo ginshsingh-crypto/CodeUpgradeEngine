@@ -16,7 +16,7 @@ interface ObjectUploaderProps {
   onUploadComplete?: (fileName: string, uploadUrl: string, fileSize: number) => Promise<void>;
   onAllComplete?: () => void;
   buttonClassName?: string;
-  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "link" | "destructive";
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
   children: ReactNode;
   disabled?: boolean;
 }
@@ -67,12 +67,12 @@ export function ObjectUploader({
     const handleUploadSuccess = async (file: UppyFile<Record<string, unknown>, Record<string, unknown>> | undefined) => {
       if (file && onUploadComplete) {
         const uploadUrl = (file as any).uploadUrl;
-        await onUploadComplete(file.name, uploadUrl, file.size);
+        await onUploadComplete(file.name, uploadUrl, file.size ?? 0);
       }
     };
 
     const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-      if (result.successful.length > 0 && onAllComplete) {
+      if (result.successful && result.successful.length > 0 && onAllComplete) {
         onAllComplete();
       }
       setShowModal(false);
@@ -90,7 +90,7 @@ export function ObjectUploader({
 
   useEffect(() => {
     return () => {
-      uppy.close();
+      uppy.destroy();
     };
   }, [uppy]);
 

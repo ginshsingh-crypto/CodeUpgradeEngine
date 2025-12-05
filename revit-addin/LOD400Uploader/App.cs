@@ -9,9 +9,6 @@ using Newtonsoft.Json.Linq;
 
 namespace LOD400Uploader
 {
-    /// <summary>
-    /// Revit External Application - Entry point for the add-in
-    /// </summary>
     public class App : IExternalApplication
     {
         public static string ApiBaseUrl { get; private set; }
@@ -27,43 +24,24 @@ namespace LOD400Uploader
         {
             try
             {
-                // Load API URL from config file, environment, or default
                 ApiBaseUrl = LoadApiUrl();
 
-                // Create ribbon tab
                 string tabName = "LOD 400";
                 application.CreateRibbonTab(tabName);
 
-                // Create ribbon panel
-                RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Sheet Upgrade");
+                RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Upload");
 
-                // Get assembly path for button
                 string assemblyPath = Assembly.GetExecutingAssembly().Location;
 
-                // Create push button for upload command
                 PushButtonData uploadButtonData = new PushButtonData(
-                    "UploadSheets",
-                    "Upload\nSheets",
+                    "SelectSheets",
+                    "Select\nSheets",
                     assemblyPath,
                     "LOD400Uploader.Commands.UploadSheetsCommand"
                 );
                 uploadButtonData.ToolTip = "Select sheets and upload for LOD 400 upgrade";
-                uploadButtonData.LongDescription = "Opens the LOD 400 Upload dialog where you can select sheets from your model, " +
-                    "review pricing (150 SAR per sheet), pay securely via Stripe, and upload your model for professional LOD 400 upgrade.";
 
                 PushButton uploadButton = ribbonPanel.AddItem(uploadButtonData) as PushButton;
-
-                // Create push button for check status
-                PushButtonData statusButtonData = new PushButtonData(
-                    "CheckStatus",
-                    "Check\nStatus",
-                    assemblyPath,
-                    "LOD400Uploader.Commands.CheckStatusCommand"
-                );
-                statusButtonData.ToolTip = "Check order status and download deliverables";
-                statusButtonData.LongDescription = "View your existing orders, check processing status, and download completed LOD 400 deliverables.";
-
-                PushButton statusButton = ribbonPanel.AddItem(statusButtonData) as PushButton;
 
                 return Result.Succeeded;
             }
@@ -79,19 +57,14 @@ namespace LOD400Uploader
             return Result.Succeeded;
         }
         
-        /// <summary>
-        /// Load API URL from config file, environment variable, or use default
-        /// </summary>
         private string LoadApiUrl()
         {
-            // First check environment variable
             string envUrl = Environment.GetEnvironmentVariable("LOD400_API_URL");
             if (!string.IsNullOrEmpty(envUrl))
             {
                 return envUrl.TrimEnd('/');
             }
             
-            // Then check config file (created by installer)
             if (File.Exists(ConfigFile))
             {
                 try
@@ -106,17 +79,12 @@ namespace LOD400Uploader
                 }
                 catch
                 {
-                    // Ignore config read errors, use default
                 }
             }
             
-            // Default production URL
             return "https://deepnewbim.com";
         }
         
-        /// <summary>
-        /// Save API URL to config file
-        /// </summary>
         public static void SaveApiUrl(string url)
         {
             try

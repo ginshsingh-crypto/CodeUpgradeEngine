@@ -18,7 +18,6 @@ namespace LOD400Uploader.Views
         private readonly ObservableCollection<SheetItem> _sheets;
         private readonly ApiService _apiService;
         private readonly PackagingService _packagingService;
-        private const int PRICE_PER_SHEET = 150;
 
         public UploadDialog(Document document) : this(document, null) { }
 
@@ -81,12 +80,8 @@ namespace LOD400Uploader.Views
         private void UpdateSummary()
         {
             int selectedCount = _sheets.Count(s => s.IsSelected);
-            int totalPrice = selectedCount * PRICE_PER_SHEET;
-
             SelectedCountText.Text = $"{selectedCount} sheets selected";
             SheetCountRun.Text = selectedCount.ToString();
-            TotalPriceRun.Text = totalPrice.ToString("N0");
-
             UploadButton.IsEnabled = selectedCount > 0;
         }
 
@@ -138,10 +133,8 @@ namespace LOD400Uploader.Views
 
             if (!_apiService.HasSession)
             {
-                // Try loading saved session from config first
                 _apiService.LoadFromConfig();
                 
-                // If still no session, show login dialog
                 if (!_apiService.HasSession)
                 {
                     var loginDialog = new LoginDialog();
@@ -149,13 +142,13 @@ namespace LOD400Uploader.Views
                     {
                         return;
                     }
-                    // Reload from config after successful login
                     _apiService.LoadFromConfig();
                 }
             }
 
             UploadButton.IsEnabled = false;
-            ProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            CancelButton.IsEnabled = false;
+            ProgressPanel.Visibility = Visibility.Visible;
 
             string packagePath = null;
 
@@ -180,56 +173,22 @@ namespace LOD400Uploader.Views
 
                     MessageBox.Show(
                         "A payment page has been opened in your browser.\n\n" +
-                        "Please complete the payment. The upload will begin automatically once payment is confirmed.\n\n" +
-                        "Do not close this window.",
+                        "Please complete the payment, then click OK to continue.",
                         "Complete Payment",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
 
-                    ProgressText.Text = "Waiting for payment confirmation...";
-                    ProgressBar.Value = 15;
+                    ProgressText.Text = "Checking payment...";
                     ProgressBar.IsIndeterminate = true;
 
-                    try
-                    {
-                        order = await _apiService.PollOrderStatusAsync(order.Id, maxAttempts: 90, delayMs: 2000);
-                        ProgressBar.IsIndeterminate = false;
-                    }
-                    catch (TimeoutException)
-                    {
-                        ProgressBar.IsIndeterminate = false;
-                        var result = MessageBox.Show(
-                            "Payment confirmation is taking longer than expected.\n\n" +
-                            "Would you like to continue waiting?",
-                            "Payment Pending",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Question);
-
-                        if (result == MessageBoxResult.Yes)
-                        {
-                            ProgressBar.IsIndeterminate = true;
-                            order = await _apiService.PollOrderStatusAsync(order.Id, maxAttempts: 180, delayMs: 2000);
-                            ProgressBar.IsIndeterminate = false;
-                        }
-                        else
-                        {
-                            ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
-                            UploadButton.IsEnabled = true;
-                            MessageBox.Show(
-                                $"Order {order.Id} has been created but not paid.\n\n" +
-                                "You can complete payment later and upload your model using the 'Check Status' command.",
-                                "Order Pending",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information);
-                            return;
-                        }
-                    }
+                    order = await _apiService.PollOrderStatusAsync(order.Id, maxAttempts: 60, delayMs: 2000);
+                    ProgressBar.IsIndeterminate = false;
                 }
 
                 if (order.Status != "paid" && order.Status != "uploaded" && 
                     order.Status != "processing" && order.Status != "complete")
                 {
-                    throw new InvalidOperationException($"Order status is '{order.Status}'. Expected 'paid' or later status.");
+                    throw new InvalidOperationException($"Payment not confirmed. Please try again.");
                 }
 
                 ProgressText.Text = "Packaging model...";
@@ -249,13 +208,12 @@ namespace LOD400Uploader.Views
                     });
                 });
 
-                ProgressText.Text = "Preparing upload...";
+                ProgressText.Text = "Uploading...";
                 ProgressBar.Value = 65;
 
                 string fileName = System.IO.Path.GetFileName(packagePath);
                 string uploadUrl = await _apiService.GetUploadUrlAsync(order.Id, fileName);
 
-                ProgressText.Text = "Uploading model...";
                 ProgressBar.Value = 70;
 
                 long fileSize = _packagingService.GetFileSize(packagePath);
@@ -278,15 +236,12 @@ namespace LOD400Uploader.Views
                 packagePath = null;
 
                 ProgressBar.Value = 100;
-                ProgressText.Text = "Upload complete!";
+                ProgressText.Text = "Done!";
 
                 MessageBox.Show(
-                    $"Your model has been uploaded successfully!\n\n" +
-                    $"Order ID: {order.Id}\n" +
-                    $"Sheets: {selectedSheets.Count}\n" +
-                    $"Total: {order.TotalPriceSar} SAR\n\n" +
-                    "You will be notified when your LOD 400 deliverables are ready.",
-                    "Upload Complete",
+                    $"Upload complete!\n\nOrder: {order.Id}\nSheets: {selectedSheets.Count}\n\n" +
+                    "You will be notified when your LOD 400 model is ready.",
+                    "Success",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
 
@@ -300,15 +255,15 @@ namespace LOD400Uploader.Views
                 }
 
                 MessageBox.Show(
-                    $"An error occurred during the upload process:\n\n{ex.Message}\n\n" +
-                    "Please try again or contact support if the issue persists.",
-                    "Upload Error",
+                    $"Error: {ex.Message}\n\nPlease try again.",
+                    "Upload Failed",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                ProgressPanel.Visibility = Visibility.Collapsed;
                 ProgressBar.IsIndeterminate = false;
                 UploadButton.IsEnabled = true;
+                CancelButton.IsEnabled = true;
             }
         }
     }

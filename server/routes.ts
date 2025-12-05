@@ -724,10 +724,9 @@ export async function registerRoutes(
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {
         await storage.updateOrder(order.id, { status: "paid" });
-        const baseUrl = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
         return res.status(201).json({ 
           order: { ...order, status: "paid" },
-          checkoutUrl: `https://${baseUrl}/?payment=success&order=${order.id}&test_mode=true`,
+          checkoutUrl: null,
           testMode: true
         });
       }

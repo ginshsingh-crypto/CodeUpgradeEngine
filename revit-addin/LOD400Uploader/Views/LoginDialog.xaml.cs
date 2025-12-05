@@ -18,17 +18,16 @@ namespace LOD400Uploader.Views
 
         public bool IsAuthenticated { get; private set; }
         public ApiService AuthenticatedApiService => _apiService;
-        private bool _usedLegacyApiKey = false;
 
         public LoginDialog()
         {
             InitializeComponent();
             _apiService = new ApiService();
             
-            Loaded += async (s, e) => await LoadSavedCredentialsAsync();
+            Loaded += (s, e) => LoadSavedEmail();
         }
 
-        private async System.Threading.Tasks.Task LoadSavedCredentialsAsync()
+        private void LoadSavedEmail()
         {
             try
             {
@@ -42,83 +41,7 @@ namespace LOD400Uploader.Views
                     {
                         EmailTextBox.Text = savedEmail;
                     }
-
-                    string savedApiKey = config?.apiKey;
-                    if (!string.IsNullOrEmpty(savedApiKey))
-                    {
-                        await TryLegacyApiKeyLogin(savedApiKey, savedEmail);
-                    }
                 }
-            }
-            catch
-            {
-            }
-        }
-
-        private async System.Threading.Tasks.Task TryLegacyApiKeyLogin(string apiKey, string email)
-        {
-            LoginButton.IsEnabled = false;
-            LoginButton.Content = "Validating API key...";
-            ErrorText.Text = "Found saved API key, validating...";
-            ErrorText.Visibility = Visibility.Visible;
-
-            try
-            {
-                var result = await _apiService.ValidateApiKeyAsync(apiKey);
-                
-                if (result.Success)
-                {
-                    _apiService.ConfigureForLegacyApiKey(apiKey);
-                    
-                    SaveLegacyApiKey(apiKey, email);
-                    
-                    _usedLegacyApiKey = true;
-                    IsAuthenticated = true;
-                    
-                    MessageBox.Show(
-                        "Signed in using your saved API key.\n\n" +
-                        "Note: API keys are being phased out. We recommend upgrading to password-based login " +
-                        "in the Settings page at " + App.ApiBaseUrl + " for improved security.",
-                        "Signed In (Legacy API Key)",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information
-                    );
-                    
-                    DialogResult = true;
-                    Close();
-                    return;
-                }
-                else
-                {
-                    ErrorText.Text = "Saved API key is invalid or expired. Please sign in with your password.";
-                    ErrorText.Visibility = Visibility.Visible;
-                }
-            }
-            catch
-            {
-                ErrorText.Text = "Could not validate API key. Please sign in with your password.";
-                ErrorText.Visibility = Visibility.Visible;
-            }
-            finally
-            {
-                LoginButton.IsEnabled = true;
-                LoginButton.Content = "Sign In";
-            }
-        }
-
-        private void SaveLegacyApiKey(string apiKey, string email)
-        {
-            try
-            {
-                var dir = Path.GetDirectoryName(ConfigPath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                var config = new { apiKey = apiKey, email = email };
-                var json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
-                File.WriteAllText(ConfigPath, json);
             }
             catch
             {
@@ -135,7 +58,7 @@ namespace LOD400Uploader.Views
                     Directory.CreateDirectory(dir);
                 }
 
-                var config = new { sessionToken = sessionToken, email = email, apiKey = (string)null };
+                var config = new { sessionToken = sessionToken, email = email };
                 var json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
                 File.WriteAllText(ConfigPath, json);
             }
@@ -209,7 +132,6 @@ namespace LOD400Uploader.Views
         {
             try
             {
-                // Direct to main site - users sign in with Replit Auth, then set add-in password in Settings
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = App.ApiBaseUrl,
@@ -225,7 +147,6 @@ namespace LOD400Uploader.Views
         {
             try
             {
-                // Direct to Settings page where users can reset their add-in password after signing in
                 MessageBox.Show(
                     "To reset your add-in password:\n\n" +
                     "1. Go to " + App.ApiBaseUrl + "\n" +

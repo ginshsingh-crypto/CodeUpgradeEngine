@@ -22,8 +22,6 @@ namespace LOD400Uploader.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
         private string _sessionToken;
-        private string _apiKey;
-        private bool _useLegacyApiKey;
         
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -53,13 +51,6 @@ namespace LOD400Uploader.Services
                         SetSessionToken(sessionToken);
                         return true;
                     }
-                    
-                    string apiKey = config?.apiKey;
-                    if (!string.IsNullOrEmpty(apiKey))
-                    {
-                        ConfigureForLegacyApiKey(apiKey);
-                        return true;
-                    }
                 }
             }
             catch
@@ -71,24 +62,11 @@ namespace LOD400Uploader.Services
         public void SetSessionToken(string token)
         {
             _sessionToken = token;
-            _apiKey = null;
-            _useLegacyApiKey = false;
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
-        public void ConfigureForLegacyApiKey(string apiKey)
-        {
-            _apiKey = apiKey;
-            _sessionToken = null;
-            _useLegacyApiKey = true;
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("X-API-Key", apiKey);
-        }
-
-        public bool HasSession => !string.IsNullOrEmpty(_sessionToken) || !string.IsNullOrEmpty(_apiKey);
-
-        public bool IsUsingLegacyApiKey => _useLegacyApiKey;
+        public bool HasSession => !string.IsNullOrEmpty(_sessionToken);
 
         public async Task<LoginResult> LoginAsync(string email, string password)
         {
@@ -147,43 +125,6 @@ namespace LOD400Uploader.Services
             catch
             {
                 return false;
-            }
-        }
-
-        public async Task<LoginResult> ValidateApiKeyAsync(string apiKey)
-        {
-            try
-            {
-                using (var client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
-                    var response = await client.GetAsync($"{_baseUrl}/api/addin/orders");
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        return new LoginResult
-                        {
-                            Success = true,
-                            Token = apiKey
-                        };
-                    }
-                    else
-                    {
-                        return new LoginResult
-                        {
-                            Success = false,
-                            ErrorMessage = "Invalid or expired API key"
-                        };
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                return new LoginResult
-                {
-                    Success = false,
-                    ErrorMessage = ex.Message
-                };
             }
         }
 

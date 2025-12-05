@@ -70,6 +70,11 @@ async function initStripe() {
 
 (async () => {
   try {
+    // Log TEST_MODE status at startup
+    if (process.env.TEST_MODE === "true") {
+      log("TEST MODE ACTIVE - Payments are bypassed", "config");
+    }
+
     // Register Stripe webhook route FIRST (before json middleware)
     app.post(
       '/api/stripe/webhook/:uuid',

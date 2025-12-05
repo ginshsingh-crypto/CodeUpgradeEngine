@@ -113,11 +113,7 @@ export default function ClientDashboard() {
                 pay securely, and upload your model for LOD 400 upgrade.
               </p>
               <Button variant="outline" className="mt-4" asChild>
-                <a
-                  href="https://github.com/LOD400/revit-addin/releases"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href="/downloads">
                   <Download className="h-4 w-4 mr-2" />
                   Download Revit Add-in
                 </a>

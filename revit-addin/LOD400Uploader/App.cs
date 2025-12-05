@@ -110,8 +110,8 @@ namespace LOD400Uploader
                 }
             }
             
-            // Default URL - update this after deployment
-            return "https://lod400-platform.replit.app";
+            // Default production URL
+            return "https://deepnewbim.com";
         }
         
         /// <summary>

@@ -189,9 +189,11 @@ Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Start (or restart) Revit"
 Write-Host "  2. Look for the 'LOD 400' tab in the ribbon"
 Write-Host "  3. Click 'Upload Sheets' to get started"
-Write-Host "  4. Enter your API key when prompted"
+Write-Host "  4. Log in with your email and password"
 Write-Host ""
-Write-Host "Don't have an API key yet?" -ForegroundColor Yellow
-Write-Host "  Go to $ApiUrl/settings to generate one" -ForegroundColor Gray
+Write-Host "First time using the add-in?" -ForegroundColor Yellow
+Write-Host "  1. Sign in at $ApiUrl" -ForegroundColor Gray
+Write-Host "  2. Go to Settings and set your add-in password" -ForegroundColor Gray
+Write-Host "  3. Log in to the add-in with your email and password" -ForegroundColor Gray
 Write-Host ""
 Read-Host "Press Enter to exit"

@@ -161,6 +161,15 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+**December 5, 2025 (Late)**:
+- Simplified Revit add-in for pre-launch TEST_MODE:
+  - Removed "Check Status" button entirely from ribbon
+  - Removed StatusDialog.xaml and CheckStatusCommand.cs
+  - Simplified UploadDialog: removed pricing display, changed button to "Upload"
+  - Add-in now has single "Select Sheets" button for minimal UI
+- TEST_MODE server behavior: returns `checkoutUrl: null` and marks orders as "paid" immediately
+- Server logs "TEST MODE ACTIVE - Payments are bypassed" on startup
+
 **December 5, 2025**:
 - **BREAKING**: Removed all API key authentication - email/password is now the only authentication method for the Revit add-in
 - Removed API key endpoints from server (/api/user/api-keys)

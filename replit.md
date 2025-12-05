@@ -169,6 +169,8 @@ Preferred communication style: Simple, everyday language.
 - Fixed broken download link in ClientDashboard (now points to /downloads page)
 - Updated default API URL in Revit add-in to https://deepnewbim.com
 - Updated installer script to reference password login instead of legacy API keys
+- Fixed add-in LoginDialog: "Sign Up" now opens main site, "Forgot Password" shows instructions and opens Settings
+- Comprehensive add-in code review completed - all flows verified
 - All E2E tests passing: client flow, admin flow, order lifecycle
 
 **December 4, 2025**:

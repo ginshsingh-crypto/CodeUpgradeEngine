@@ -209,9 +209,10 @@ namespace LOD400Uploader.Views
         {
             try
             {
+                // Direct to main site - users sign in with Replit Auth, then set add-in password in Settings
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = $"{App.ApiBaseUrl}/register",
+                    FileName = App.ApiBaseUrl,
                     UseShellExecute = true
                 });
             }
@@ -224,9 +225,21 @@ namespace LOD400Uploader.Views
         {
             try
             {
+                // Direct to Settings page where users can reset their add-in password after signing in
+                MessageBox.Show(
+                    "To reset your add-in password:\n\n" +
+                    "1. Go to " + App.ApiBaseUrl + "\n" +
+                    "2. Sign in with your account\n" +
+                    "3. Go to Settings\n" +
+                    "4. Set a new password in the 'Add-in Login' section\n\n" +
+                    "The website will now open in your browser.",
+                    "Reset Add-in Password",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                    
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = $"{App.ApiBaseUrl}/forgot-password",
+                    FileName = $"{App.ApiBaseUrl}/settings",
                     UseShellExecute = true
                 });
             }

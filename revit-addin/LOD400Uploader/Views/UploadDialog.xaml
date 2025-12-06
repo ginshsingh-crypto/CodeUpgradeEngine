@@ -127,15 +127,15 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 
-                <!-- Progress -->
+                <!-- Progress (hidden by default) -->
                 <StackPanel x:Name="ProgressPanel" Grid.Column="0" Visibility="Collapsed" VerticalAlignment="Center">
                     <TextBlock x:Name="ProgressText" Text="Preparing..." FontSize="14" Foreground="#6B7280"/>
                     <ProgressBar x:Name="ProgressBar" Height="6" Margin="0,8,16,0" 
                                  Background="#E5E7EB" Foreground="#2563EB"/>
                 </StackPanel>
                 
-                <!-- Summary when not uploading -->
-                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="14" Foreground="#6B7280">
+                <!-- Summary when not uploading (hidden when progress is shown) -->
+                <TextBlock x:Name="SummaryText" Grid.Column="0" VerticalAlignment="Center" FontSize="14" Foreground="#6B7280">
                     <Run x:Name="SheetCountRun" Text="0"/> sheets selected
                 </TextBlock>
                 

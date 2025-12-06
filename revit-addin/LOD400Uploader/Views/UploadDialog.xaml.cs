@@ -121,6 +121,18 @@ namespace LOD400Uploader.Views
             Close();
         }
 
+        private void ShowProgress()
+        {
+            ProgressPanel.Visibility = Visibility.Visible;
+            SummaryText.Visibility = Visibility.Collapsed;
+        }
+
+        private void HideProgress()
+        {
+            ProgressPanel.Visibility = Visibility.Collapsed;
+            SummaryText.Visibility = Visibility.Visible;
+        }
+
         private async void UploadButton_Click(object sender, RoutedEventArgs e)
         {
             var selectedSheets = _sheets.Where(s => s.IsSelected).ToList();
@@ -148,7 +160,7 @@ namespace LOD400Uploader.Views
 
             UploadButton.IsEnabled = false;
             CancelButton.IsEnabled = false;
-            ProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            ShowProgress();
 
             string packagePath = null;
 
@@ -203,42 +215,18 @@ namespace LOD400Uploader.Views
                     ProgressBar.Value = 20 + (progress * 0.4);
                 });
 
-                ProgressText.Text = "Uploading...";
+                // At this point, packaging is complete. Close the dialog and upload in background.
+                ProgressText.Text = "Starting background upload...";
                 ProgressBar.Value = 65;
 
-                string fileName = System.IO.Path.GetFileName(packagePath);
-                string uploadUrl = await _apiService.GetUploadUrlAsync(order.Id, fileName);
+                // Store values needed for background upload
+                string orderId = order.Id;
+                int sheetCount = selectedSheets.Count;
+                string localPackagePath = packagePath;
+                packagePath = null; // Don't cleanup on dialog close
 
-                ProgressBar.Value = 70;
-
-                long fileSize = _packagingService.GetFileSize(packagePath);
-                byte[] fileData = await Task.Run(() => _packagingService.ReadFileBytes(packagePath));
-
-                await _apiService.UploadFileAsync(uploadUrl, fileData, (progress) =>
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        ProgressBar.Value = 70 + (progress * 0.25);
-                    });
-                });
-
-                ProgressText.Text = "Finalizing...";
-                ProgressBar.Value = 95;
-
-                await _apiService.MarkUploadCompleteAsync(order.Id, fileName, fileSize, uploadUrl);
-
-                _packagingService.Cleanup(packagePath);
-                packagePath = null;
-
-                ProgressBar.Value = 100;
-                ProgressText.Text = "Done!";
-
-                MessageBox.Show(
-                    $"Upload complete!\n\nOrder: {order.Id}\nSheets: {selectedSheets.Count}\n\n" +
-                    "You will be notified when your LOD 400 model is ready.",
-                    "Success",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                // Start background upload
+                BackgroundUploader.StartUpload(_apiService, _packagingService, orderId, localPackagePath, sheetCount);
 
                 Close();
             }
@@ -255,11 +243,74 @@ namespace LOD400Uploader.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                HideProgress();
                 ProgressBar.IsIndeterminate = false;
                 UploadButton.IsEnabled = true;
                 CancelButton.IsEnabled = true;
             }
+        }
+    }
+
+    public static class BackgroundUploader
+    {
+        private static bool _isUploading = false;
+
+        public static void StartUpload(ApiService apiService, PackagingService packagingService, 
+            string orderId, string packagePath, int sheetCount)
+        {
+            if (_isUploading)
+            {
+                MessageBox.Show("Another upload is already in progress.", "Upload In Progress",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _isUploading = true;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    string fileName = System.IO.Path.GetFileName(packagePath);
+                    string uploadUrl = await apiService.GetUploadUrlAsync(orderId, fileName);
+
+                    long fileSize = packagingService.GetFileSize(packagePath);
+                    byte[] fileData = packagingService.ReadFileBytes(packagePath);
+
+                    await apiService.UploadFileAsync(uploadUrl, fileData, (progress) => { });
+
+                    await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, uploadUrl);
+
+                    packagingService.Cleanup(packagePath);
+
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            $"Upload complete!\n\nOrder: {orderId}\nSheets: {sheetCount}\n\n" +
+                            "You will be notified when your LOD 400 model is ready.",
+                            "Success",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    packagingService.Cleanup(packagePath);
+
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            $"Upload failed: {ex.Message}\n\nPlease try again.",
+                            "Upload Failed",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    });
+                }
+                finally
+                {
+                    _isUploading = false;
+                }
+            });
         }
     }
 

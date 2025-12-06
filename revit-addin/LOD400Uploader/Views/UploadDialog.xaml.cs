@@ -148,7 +148,7 @@ namespace LOD400Uploader.Views
 
             UploadButton.IsEnabled = false;
             CancelButton.IsEnabled = false;
-            ProgressPanel.Visibility = Visibility.Visible;
+            ProgressPanel.Visibility = System.Windows.Visibility.Visible;
 
             string packagePath = null;
 
@@ -260,7 +260,7 @@ namespace LOD400Uploader.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                ProgressPanel.Visibility = Visibility.Collapsed;
+                ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                 ProgressBar.IsIndeterminate = false;
                 UploadButton.IsEnabled = true;
                 CancelButton.IsEnabled = true;

@@ -1,22 +1,13 @@
-import * as client from "openid-client";
-import { Strategy, type VerifyFunction } from "openid-client/passport";
-
-import passport from "passport";
 import session from "express-session";
-import type { Express, RequestHandler } from "express";
-import memoize from "memoizee";
+import type { Express, RequestHandler, Request, Response, NextFunction } from "express";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 
-const getOidcConfig = memoize(
-  async () => {
-    return await client.discovery(
-      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
-    );
-  },
-  { maxAge: 3600 * 1000 }
-);
+declare module "express-session" {
+  interface SessionData {
+    userId?: string;
+  }
+}
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
@@ -40,135 +31,69 @@ export function getSession() {
   });
 }
 
-function updateUserSession(
-  user: any,
-  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
-) {
-  user.claims = tokens.claims();
-  user.access_token = tokens.access_token;
-  user.refresh_token = tokens.refresh_token;
-  user.expires_at = user.claims?.exp;
-}
-
-async function upsertUser(claims: any) {
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
-  });
-}
-
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
 
-  const config = await getOidcConfig();
-
-  const verify: VerifyFunction = async (
-    tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
-    verified: passport.AuthenticateCallback
-  ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
-  };
-
-  const registeredStrategies = new Set<string>();
-
-  const ensureStrategy = (domain: string) => {
-    const strategyName = `replitauth:${domain}`;
-    if (!registeredStrategies.has(strategyName)) {
-      const strategy = new Strategy(
-        {
-          name: strategyName,
-          config,
-          scope: "openid email profile offline_access",
-          callbackURL: `https://${domain}/api/callback`,
-        },
-        verify,
-      );
-      passport.use(strategy);
-      registeredStrategies.add(strategyName);
-    }
-  };
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-
-  app.get("/api/login", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "login consent",
-      scope: ["openid", "email", "profile", "offline_access"],
-    })(req, res, next);
+  // Simple logout route - clears the session
+  app.post("/api/logout", (req: Request, res: Response) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Error destroying session:", err);
+        return res.status(500).json({ message: "Failed to logout" });
+      }
+      res.clearCookie("connect.sid");
+      res.json({ message: "Logged out successfully" });
+    });
   });
 
-  app.get("/api/callback", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
-    })(req, res, next);
-  });
-
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+  // GET logout for easy redirect
+  app.get("/api/logout", (req: Request, res: Response) => {
+    req.session.destroy((err) => {
+      res.clearCookie("connect.sid");
+      res.redirect("/");
     });
   });
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
+// Middleware to check if user is authenticated via session
+export const isAuthenticated: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.session?.userId;
 
-  if (!req.isAuthenticated() || !user.expires_at) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
-    return next();
-  }
-
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-};
-
-export const isAdmin: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
-  const userId = user?.claims?.sub;
-  
   if (!userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
-  
-  const dbUser = await storage.getUser(userId);
-  if (!dbUser?.isAdmin) {
+
+  // Verify user still exists in database
+  const user = await storage.getUser(userId);
+  if (!user) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  // Attach user to request for downstream use
+  (req as any).dbUser = user;
+  return next();
+};
+
+// Middleware to check if user is an admin
+export const isAdmin: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.session?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const user = await storage.getUser(userId);
+  if (!user) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  if (!user.isAdmin) {
     return res.status(403).json({ message: "Forbidden - Admin access required" });
   }
-  
+
+  (req as any).dbUser = user;
   return next();
 };

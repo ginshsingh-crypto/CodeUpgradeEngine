@@ -66,8 +66,7 @@ export async function registerRoutes(
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = req.dbUser;
       if (user) {
         const { passwordHash, passwordSalt, ...safeUser } = user;
         res.json({
@@ -147,6 +146,9 @@ export async function registerRoutes(
       // Create user
       const user = await storage.createUserWithPassword(email, passwordHash, firstName, lastName);
 
+      // Auto-login: set web session cookie
+      req.session.userId = user.id;
+
       res.status(201).json({
         message: "User registered successfully",
         user: safeUserInfo(user),
@@ -157,6 +159,43 @@ export async function registerRoutes(
     }
   });
 
+  // Web login (sets cookie session)
+  app.post("/api/auth/web-login", async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { email, password } = parsed.data;
+
+      // Rate limiting: max 10 attempts per IP+email per minute
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkLoginRateLimit(ip, email)) {
+        return res.status(429).json({ message: "Too many login attempts. Please try again later." });
+      }
+
+      // Validate credentials
+      const user = await storage.validateUserPassword(email, password);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Set web session cookie
+      req.session.userId = user.id;
+
+      res.json({
+        message: "Login successful",
+        user: safeUserInfo(user),
+      });
+    } catch (error) {
+      console.error("Error logging in:", error);
+      res.status(500).json({ message: "Failed to login" });
+    }
+  });
+
+  // Add-in login (returns Bearer token)
   app.post("/api/auth/login", async (req, res) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
@@ -179,10 +218,10 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      // Generate secure token
+      // Generate secure token for add-in
       const rawToken = crypto.randomBytes(32).toString("hex");
 
-      // Create session
+      // Create add-in session
       const { session } = await storage.createAddinSession(user.id, rawToken, deviceLabel);
 
       res.json({
@@ -257,7 +296,7 @@ export async function registerRoutes(
 
   app.post("/api/auth/set-password", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       // Rate limiting: max 20 attempts per IP+user per minute for password endpoints
       const ip = req.ip || req.socket.remoteAddress || "unknown";
       if (!checkPasswordEndpointRateLimit(ip, userId)) {
@@ -296,7 +335,7 @@ export async function registerRoutes(
 
   app.post("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       // Rate limiting: max 20 attempts per IP+user per minute for password endpoints
       const ip = req.ip || req.socket.remoteAddress || "unknown";
       if (!checkPasswordEndpointRateLimit(ip, userId)) {
@@ -331,7 +370,7 @@ export async function registerRoutes(
 
   app.get("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const orders = await storage.getOrdersByUserId(userId);
       res.json(orders);
     } catch (error) {
@@ -342,7 +381,7 @@ export async function registerRoutes(
 
   app.post("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const parsed = createOrderRequestSchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -368,7 +407,7 @@ export async function registerRoutes(
 
   app.get("/api/orders/:orderId/checkout", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { orderId } = req.params;
 
       const order = await storage.getOrder(orderId);
@@ -427,7 +466,7 @@ export async function registerRoutes(
 
   app.post("/api/orders/:orderId/upload-url", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { orderId } = req.params;
       const { fileName } = req.body;
 
@@ -459,7 +498,7 @@ export async function registerRoutes(
 
   app.post("/api/orders/:orderId/upload-complete", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { orderId } = req.params;
       const { fileName, fileSize, uploadURL } = req.body;
 
@@ -498,7 +537,7 @@ export async function registerRoutes(
 
   app.get("/api/orders/:orderId/status", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { orderId } = req.params;
 
       const order = await storage.getOrderWithFiles(orderId);
@@ -520,7 +559,7 @@ export async function registerRoutes(
 
   app.get("/api/files/:fileId/download", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { fileId } = req.params;
 
       const file = await storage.getFile(fileId);
@@ -903,7 +942,7 @@ export async function registerRoutes(
 
   app.get("/api/orders/:orderId/download-url", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.dbUser.id;
       const { orderId } = req.params;
 
       const order = await storage.getOrderWithFiles(orderId);

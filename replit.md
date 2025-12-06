@@ -67,16 +67,20 @@ Preferred communication style: Simple, everyday language.
 
 ### Authentication & Authorization
 
-**User Authentication**: Replit Auth (OIDC) for web dashboard login with automatic user provisioning on first login.
-
-**Add-in Authentication** (Email/Password):
-- Users sign in to web dashboard with Replit Auth, then set an add-in password in Settings
-- Email/password login from the Revit add-in
+**Web Authentication** (Email/Password):
+- Custom email/password authentication for clean sign-in experience (no OAuth consent screens)
+- Users register with email, password, first name, last name
+- Cookie-based sessions with PostgreSQL persistence (connect-pg-simple)
 - Passwords hashed with bcrypt (cost factor 12)
+- 7-day session TTL with httpOnly, secure cookies (sameSite: lax)
+- Environment-aware secure cookie configuration (HTTPS required on Replit/production)
+
+**Revit Add-in Authentication** (Email/Password + Bearer Token):
+- Uses same email/password credentials as web dashboard
+- Login returns Bearer token for API calls
 - Session tokens stored as SHA-256 hashes for O(1) lookups
-- 30-day session expiry with automatic renewal
+- 30-day session expiry for add-in tokens
 - Sessions stored in dedicated `addinSessions` table
-- Bearer token authentication for all add-in API requests
 
 **Rate Limiting**:
 - Login: 10 attempts per minute per IP+email combination
@@ -108,7 +112,6 @@ Preferred communication style: Simple, everyday language.
 ### Third-Party Services
 
 **Replit Infrastructure**:
-- Replit Auth (OIDC) - Authentication provider
 - Replit Object Storage - File storage via Google Cloud Storage sidecar
 - Replit Connectors - Stripe credential management
 
@@ -160,6 +163,17 @@ Preferred communication style: Simple, everyday language.
 - Supports Revit 2024 (adaptable for 2020-2025)
 
 ## Recent Changes
+
+**December 6, 2025**:
+- **BREAKING**: Replaced Replit Auth with custom email/password authentication for web dashboard
+  - Clean sign-in experience without OAuth consent screens
+  - Added /login and /register pages with dark theme matching landing page
+  - Added POST /api/auth/web-login endpoint for cookie-based sessions
+  - Updated POST /api/auth/register to auto-login after registration
+  - Environment-aware secure cookies (HTTPS on Replit/production, HTTP for local dev)
+- Updated all protected routes to use session-based auth (req.dbUser)
+- Removed Replit Auth login button from landing page, replaced with Sign In/Get Started buttons
+- E2E tests verified: registration, login, logout, session persistence
 
 **December 5, 2025 (Late)**:
 - Simplified Revit add-in for pre-launch TEST_MODE:
@@ -227,8 +241,9 @@ The LOD 400 Delivery Platform MVP is now complete with:
 - Note: C# compilation not possible on Replit; users download source and compile in Visual Studio. PowerShell installer provides clear guidance when DLLs are missing.
 
 **Tested Flows**:
-- User registration and authentication (Replit OIDC)
-- Password-based add-in login
+- User registration and authentication (email/password)
+- Session-based web authentication with secure cookies
+- Password-based add-in login (Bearer tokens)
 - Order creation and status tracking
 - Payment processing via Stripe
 - Admin file upload and order management

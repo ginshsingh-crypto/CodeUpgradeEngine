@@ -5,6 +5,7 @@ import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { createOrderRequestSchema, PRICE_PER_SHEET_SAR } from "@shared/schema";
 import { getUncachableStripeClient } from "./stripeClient";
+import { sendPasswordResetEmail } from "./emailService";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { z } from "zod";
@@ -403,10 +404,21 @@ export async function registerRoutes(
       }
 
       const token = await storage.createPasswordResetToken(user.id);
-      const resetUrl = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
+      
+      // Use HTTPS for production, handle reverse proxy
+      const host = req.get('host');
+      const protocol = host?.includes('replit') || host?.includes('deepnewbim') ? 'https' : req.protocol;
+      const resetUrl = `${protocol}://${host}/reset-password?token=${token}`;
 
-      // Log the reset URL for now (in production, send email)
-      console.log(`PASSWORD RESET LINK for ${email}: ${resetUrl}`);
+      // Send password reset email
+      const emailSent = await sendPasswordResetEmail(email, resetUrl, user.firstName || undefined);
+      
+      if (emailSent) {
+        console.log(`Password reset email sent to ${email}`);
+      } else {
+        // Fallback: log the reset URL
+        console.log(`PASSWORD RESET LINK for ${email}: ${resetUrl}`);
+      }
 
       res.json({ message: "If an account exists, a reset link has been sent." });
     } catch (error) {

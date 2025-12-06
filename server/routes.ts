@@ -365,6 +365,101 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // PASSWORD RESET
+  // ============================================
+
+  const forgotPasswordSchema = z.object({
+    email: z.string().email(),
+  });
+
+  const resetPasswordSchema = z.object({
+    token: z.string(),
+    password: z.string().min(8),
+  });
+
+  const validateResetTokenSchema = z.object({
+    token: z.string(),
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!checkRateLimit(`forgot:${ip}`, 5, 60000)) {
+        return res.status(429).json({ message: "Too many requests. Please try again later." });
+      }
+
+      const parsed = forgotPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid email address" });
+      }
+
+      const { email } = parsed.data;
+      const user = await storage.getUserByEmail(email);
+
+      // Always return success to prevent email enumeration
+      if (!user) {
+        console.log(`Password reset requested for non-existent email: ${email}`);
+        return res.json({ message: "If an account exists, a reset link has been sent." });
+      }
+
+      const token = await storage.createPasswordResetToken(user.id);
+      const resetUrl = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
+
+      // Log the reset URL for now (in production, send email)
+      console.log(`PASSWORD RESET LINK for ${email}: ${resetUrl}`);
+
+      res.json({ message: "If an account exists, a reset link has been sent." });
+    } catch (error) {
+      console.error("Error processing forgot password:", error);
+      res.status(500).json({ message: "Failed to process request" });
+    }
+  });
+
+  app.post("/api/auth/validate-reset-token", async (req, res) => {
+    try {
+      const parsed = validateResetTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid token" });
+      }
+
+      const { token } = parsed.data;
+      const user = await storage.validatePasswordResetToken(token);
+
+      if (!user) {
+        return res.status(400).json({ message: "Invalid or expired token" });
+      }
+
+      res.json({ valid: true });
+    } catch (error) {
+      console.error("Error validating reset token:", error);
+      res.status(500).json({ message: "Failed to validate token" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const parsed = resetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { token, password } = parsed.data;
+      const passwordHash = await bcrypt.hash(password, 12);
+      
+      const success = await storage.usePasswordResetToken(token, passwordHash);
+
+      if (!success) {
+        return res.status(400).json({ message: "Invalid or expired token" });
+      }
+
+      res.json({ message: "Password reset successfully" });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      res.status(500).json({ message: "Failed to reset password" });
+    }
+  });
+
+  // ============================================
   // CLIENT API ROUTES
   // ============================================
 

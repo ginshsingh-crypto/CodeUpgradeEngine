@@ -4,6 +4,7 @@ import {
   files,
   apiKeys,
   addinSessions,
+  passwordResetTokens,
   type User,
   type UpsertUser,
   type Order,
@@ -59,6 +60,11 @@ export interface IStorage {
   createAddinSession(userId: string, rawToken: string, deviceLabel?: string): Promise<{ session: AddinSession; rawToken: string }>;
   validateAddinSession(rawToken: string): Promise<User | null>;
   deleteAddinSession(rawToken: string): Promise<boolean>;
+  
+  // Password reset token operations
+  createPasswordResetToken(userId: string): Promise<string>;
+  validatePasswordResetToken(rawToken: string): Promise<User | null>;
+  usePasswordResetToken(rawToken: string, newPasswordHash: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -410,6 +416,62 @@ export class DatabaseStorage implements IStorage {
       .returning();
     
     return result.length > 0;
+  }
+
+  // Password reset token operations
+  async createPasswordResetToken(userId: string): Promise<string> {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await db.insert(passwordResetTokens).values({
+      userId,
+      tokenHash,
+      expiresAt,
+    });
+
+    return rawToken;
+  }
+
+  async validatePasswordResetToken(rawToken: string): Promise<User | null> {
+    const tokenHash = this.hashToken(rawToken);
+    
+    const [token] = await db.select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.tokenHash, tokenHash));
+    
+    if (!token) return null;
+
+    // Check if token has expired or been used
+    if (new Date() > token.expiresAt || token.usedAt) {
+      return null;
+    }
+    
+    const user = await this.getUser(token.userId);
+    return user || null;
+  }
+
+  async usePasswordResetToken(rawToken: string, newPasswordHash: string): Promise<boolean> {
+    const tokenHash = this.hashToken(rawToken);
+    
+    const [token] = await db.select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.tokenHash, tokenHash));
+    
+    if (!token || new Date() > token.expiresAt || token.usedAt) {
+      return false;
+    }
+
+    // Mark token as used and update password
+    await db.update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(passwordResetTokens.id, token.id));
+
+    await db.update(users)
+      .set({ passwordHash: newPasswordHash, updatedAt: new Date() })
+      .where(eq(users.id, token.userId));
+
+    return true;
   }
 }
 

@@ -98,11 +98,30 @@ export const addinSessions = pgTable("addin_sessions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Password reset tokens table
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  tokenHash: varchar("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Password reset tokens relations
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   orders: many(orders),
   apiKeys: many(apiKeys),
   addinSessions: many(addinSessions),
+  passwordResetTokens: many(passwordResetTokens),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
@@ -164,6 +183,12 @@ export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
 export const insertAddinSessionSchema = createInsertSchema(addinSessions).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
+  id: true,
+  createdAt: true,
+  usedAt: true,
 });
 
 // Types

@@ -18,6 +18,11 @@ export function getSession() {
     ttl: sessionTtl,
     tableName: "sessions",
   });
+  
+  // In production or on Replit (which always uses HTTPS proxy), use secure cookies
+  // For local development without HTTPS, allow insecure cookies
+  const isSecure = process.env.NODE_ENV === "production" || !!process.env.REPL_ID;
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -25,7 +30,8 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: isSecure,
+      sameSite: "lax",
       maxAge: sessionTtl,
     },
   });

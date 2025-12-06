@@ -15,6 +15,10 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
+localPort = 33737
+externalPort = 6000
+
+[[ports]]
 localPort = 36237
 externalPort = 5000
 
@@ -72,4 +76,6 @@ integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_database:1.0.
 [userenv]
 
 [userenv.development]
+
+[userenv.shared]
 TEST_MODE = "true"

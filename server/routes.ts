@@ -460,43 +460,6 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // ONE-TIME ADMIN PASSWORD RESET (TEMPORARY)
-  // DELETE THIS ENDPOINT AFTER FIRST USE!
-  // ============================================
-  
-  app.get("/api/admin-setup/reset-owner-Kj7mP9xQ", async (req, res) => {
-    try {
-      const adminEmail = "ginshsingh@gmail.com";
-      const newPassword = "AdminPass2024!";
-      
-      const user = await storage.getUserByEmail(adminEmail);
-      if (!user) {
-        return res.status(404).json({ message: "Admin user not found" });
-      }
-      
-      // Create a reset token and immediately use it
-      const resetToken = await storage.createPasswordResetToken(user.id);
-      const passwordHash = await bcrypt.hash(newPassword, 12);
-      const success = await storage.usePasswordResetToken(resetToken, passwordHash);
-      
-      if (!success) {
-        return res.status(500).json({ message: "Failed to reset password" });
-      }
-      
-      console.log(`Admin password reset for ${adminEmail}`);
-      res.json({ 
-        message: "Password reset successfully",
-        email: adminEmail,
-        tempPassword: newPassword,
-        note: "Please change this password after logging in!"
-      });
-    } catch (error) {
-      console.error("Error resetting admin password:", error);
-      res.status(500).json({ message: "Failed to reset password" });
-    }
-  });
-
-  // ============================================
   // CLIENT API ROUTES
   // ============================================
 

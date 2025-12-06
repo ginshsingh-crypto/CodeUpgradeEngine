@@ -139,11 +139,19 @@ export default function Landing() {
               </a>
             </Button>
             <Button 
-              className="bg-amber-500 text-zinc-950 border-amber-600 font-semibold uppercase tracking-wide" 
+              variant="ghost"
+              className="text-white/80 border-white/10"
               asChild 
               data-testid="button-login"
             >
-              <a href="/api/login">Sign In</a>
+              <a href="/login">Sign In</a>
+            </Button>
+            <Button 
+              className="bg-amber-500 text-zinc-950 border-amber-600 font-semibold uppercase tracking-wide" 
+              asChild 
+              data-testid="button-register"
+            >
+              <a href="/register">Get Started</a>
             </Button>
           </div>
         </div>

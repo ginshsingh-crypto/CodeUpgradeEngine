@@ -10,6 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 
 import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import ClientDashboard from "@/pages/ClientDashboard";
 import Orders from "@/pages/Orders";
@@ -74,6 +76,17 @@ function ClientRouter() {
   );
 }
 
+function PublicRouter() {
+  return (
+    <Switch>
+      <Route path="/" component={Landing} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
 function Router() {
   const { isAuthenticated, isLoading, isAdmin } = useAuth();
 
@@ -82,7 +95,7 @@ function Router() {
   }
 
   if (!isAuthenticated) {
-    return <Landing />;
+    return <PublicRouter />;
   }
 
   if (isAdmin) {

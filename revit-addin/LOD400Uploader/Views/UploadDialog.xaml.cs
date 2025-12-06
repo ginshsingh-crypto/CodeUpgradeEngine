@@ -196,16 +196,11 @@ namespace LOD400Uploader.Views
 
                 var selectedIds = selectedSheets.Select(s => s.ElementId).ToList();
                 
-                await Task.Run(() =>
+                // IMPORTANT: Revit API must run on the main thread - do NOT use Task.Run here
+                packagePath = _packagingService.PackageModel(_document, selectedIds, (progress, message) =>
                 {
-                    packagePath = _packagingService.PackageModel(_document, selectedIds, (progress, message) =>
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            ProgressText.Text = message;
-                            ProgressBar.Value = 20 + (progress * 0.4);
-                        });
-                    });
+                    ProgressText.Text = message;
+                    ProgressBar.Value = 20 + (progress * 0.4);
                 });
 
                 ProgressText.Text = "Uploading...";

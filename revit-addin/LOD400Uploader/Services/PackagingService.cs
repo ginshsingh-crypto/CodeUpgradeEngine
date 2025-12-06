@@ -41,32 +41,11 @@ namespace LOD400Uploader.Services
 
                 bool isWorkshared = document.IsWorkshared;
                 
-                if (isWorkshared)
-                {
-                    progressCallback?.Invoke(25, "Detaching workshared model...");
-                    var detachOption = new SaveAsOptions
-                    {
-                        OverwriteExistingFile = true,
-                        MaximumBackups = 1
-                    };
-                    
-                    var worksharingOptions = new WorksharingSaveAsOptions();
-                    worksharingOptions.SaveAsCentral = false;
-                    detachOption.SetWorksharingOptions(worksharingOptions);
-                    
-                    var tempSavePath = Path.Combine(_tempDir, "temp_" + fileName);
-                    document.SaveAs(tempSavePath, detachOption);
-                    
-                    if (File.Exists(tempSavePath))
-                    {
-                        File.Move(tempSavePath, modelCopyPath);
-                    }
-                }
-                else
-                {
-                    progressCallback?.Invoke(25, "Copying model file...");
-                    File.Copy(originalPath, modelCopyPath, true);
-                }
+                // For both workshared and non-workshared models, we copy the file directly
+                // This is safer and avoids Revit API threading issues
+                // The processing team will handle detaching workshared models on the server side
+                progressCallback?.Invoke(25, isWorkshared ? "Copying workshared model..." : "Copying model file...");
+                File.Copy(originalPath, modelCopyPath, true);
 
                 progressCallback?.Invoke(50, "Creating sheet manifest...");
                 string manifestPath = Path.Combine(_tempDir, "sheets.json");

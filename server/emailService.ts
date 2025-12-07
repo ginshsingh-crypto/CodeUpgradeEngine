@@ -54,8 +54,11 @@ export async function sendPasswordResetEmail(
     
     const name = firstName || 'there';
     
+    // Always use the verified deepnewbim.com domain
+    const verifiedFromEmail = 'LOD 400 Platform <noreply@deepnewbim.com>';
+    
     const { data, error } = await client.emails.send({
-      from: fromEmail || 'LOD 400 Platform <noreply@deepnewbim.com>',
+      from: verifiedFromEmail,
       to: toEmail,
       subject: 'Reset Your Password - LOD 400 Platform',
       html: `

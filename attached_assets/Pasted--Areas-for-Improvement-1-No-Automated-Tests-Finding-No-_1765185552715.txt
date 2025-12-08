@@ -1,0 +1,49 @@
+⚠️ Areas for Improvement
+1. No Automated Tests
+Finding: No test files found in the project
+Risk: Medium - harder to catch regressions
+IMPORTANT
+
+Consider adding at least integration tests for critical paths:
+
+Order creation and payment flow
+File upload/download
+Authentication
+2. Rate Limiting is In-Memory
+// Current: In-memory Map
+const authAttempts = new Map<string, { count: number; resetTime: number }>();
+Issue: Resets on server restart, doesn't scale across instances
+Recommendation: For production with multiple instances, use Redis
+3. No Email Notifications for Order Status
+Users have to manually check the dashboard
+Recommendation: Add Resend (already installed!) to notify on:
+Order paid → "Thanks! We're working on it"
+Order complete → "Your shop drawings are ready"
+4. File Cleanup Not Automated
+You mentioned deleting files 24 hours after download, but I don't see this implemented.
+
+Recommendation: Add a scheduled job to clean up old output files
+5. Stripe Webhook Missing
+// Current: Redirect-based payment confirmation
+success_url: `${req.protocol}://${req.get('host')}/?payment=success`
+Issue: If user closes browser after payment, order might not be marked paid
+Recommendation: Add Stripe webhook handler for checkout.session.completed
+6. Package.json Name
+"name": "rest-express"  // Generic name from template
+Change to "name": "lod400-platform" or similar
+🔒 Security Notes
+Check	Status	Notes
+SQL Injection	✅ Safe	Drizzle ORM with parameterized queries
+XSS	✅ Safe	React's default escaping
+CSRF	⚠️ Partial	Session-based auth has some protection, but consider adding explicit CSRF tokens
+Password Storage	✅ Safe	bcrypt with cost 12
+Secrets	✅ Safe	Environment variables, not hardcoded
+File Access	✅ Safe	Ownership checks on all file operations
+📋 Recommended Improvements (Priority Order)
+Priority	Task	Effort	Impact
+🔴 High	Add Stripe webhook for payment confirmation	2 hours	Critical for reliability
+🔴 High	Add email notifications on order status change	2 hours	UX improvement
+🟡 Medium	Implement file cleanup automation	1 hour	Cost savings
+🟡 Medium	Add basic API tests	4 hours	Maintainability
+🟢 Low	Move rate limiting to Redis	2 hours	Only needed if scaling
+🟢 Low	Add CSRF protection	1 hour	Defense in depth

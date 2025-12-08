@@ -5,6 +5,22 @@ import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
+import { db } from "./db";
+import { users } from "@shared/schema";
+import { eq, ne } from "drizzle-orm";
+
+const SUPER_ADMIN_EMAIL = "ginshsingh@gmail.com";
+
+async function ensureSuperAdmin() {
+  try {
+    // Make the designated email the only admin (isAdmin is integer: 0 = false, 1 = true)
+    await db.update(users).set({ isAdmin: 0 }).where(ne(users.email, SUPER_ADMIN_EMAIL));
+    await db.update(users).set({ isAdmin: 1 }).where(eq(users.email, SUPER_ADMIN_EMAIL));
+    log(`Super admin configured: ${SUPER_ADMIN_EMAIL}`, "auth");
+  } catch (error: any) {
+    log(`Error configuring super admin: ${error.message}`, "auth");
+  }
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -169,6 +185,11 @@ async function initStripe() {
       },
       () => {
         log(`serving on port ${port}`);
+        
+        // Ensure super admin is configured
+        ensureSuperAdmin().catch((err) => {
+          log(`Admin setup error: ${err.message}`, 'auth');
+        });
         
         // Initialize Stripe in the background AFTER server is listening
         initStripe().catch((err) => {

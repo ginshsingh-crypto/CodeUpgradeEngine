@@ -110,3 +110,149 @@ export async function sendPasswordResetEmail(
     return false;
   }
 }
+
+export async function sendOrderPaidEmail(
+  toEmail: string,
+  orderId: string,
+  sheetCount: number,
+  firstName?: string
+): Promise<boolean> {
+  try {
+    const { client } = await getUncachableResendClient();
+    
+    const name = firstName || 'there';
+    const verifiedFromEmail = 'LOD 400 Platform <noreply@deepnewbim.com>';
+    
+    const { data, error } = await client.emails.send({
+      from: verifiedFromEmail,
+      to: toEmail,
+      subject: 'Payment Received - LOD 400 Platform',
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="text-align: center; margin-bottom: 40px;">
+            <h1 style="color: #1a1a1a; font-size: 28px; margin: 0;">LOD 400 Platform</h1>
+          </div>
+          
+          <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 32px;">
+            <h2 style="color: #1a1a1a; font-size: 20px; margin: 0 0 16px;">Payment Received!</h2>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 24px;">
+              Hi ${name},
+            </p>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 16px;">
+              Thank you for your order! We've received your payment and are ready to process your LOD 400 upgrade.
+            </p>
+            
+            <div style="background: #f9f9f9; border-radius: 6px; padding: 16px; margin: 24px 0;">
+              <p style="color: #525252; font-size: 14px; margin: 0 0 8px;"><strong>Order ID:</strong> ${orderId}</p>
+              <p style="color: #525252; font-size: 14px; margin: 0;"><strong>Sheets:</strong> ${sheetCount}</p>
+            </div>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 24px;">
+              <strong>Next steps:</strong> Please upload your Revit model package through the Revit add-in or the web dashboard. Once uploaded, our team will begin processing your shop drawings.
+            </p>
+            
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="https://deepnewbim.com" style="display: inline-block; background: #d4a853; color: #000000; text-decoration: none; font-weight: 600; padding: 14px 32px; border-radius: 6px; font-size: 16px;">
+                Go to Dashboard
+              </a>
+            </div>
+          </div>
+          
+          <div style="text-align: center; margin-top: 32px;">
+            <p style="color: #a3a3a3; font-size: 12px; margin: 0;">
+              LOD 400 Delivery Platform - Professional BIM Model Upgrades
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Resend error:', error);
+      return false;
+    }
+
+    console.log(`Order paid email sent to ${toEmail}, id: ${data?.id}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending order paid email:', error);
+    return false;
+  }
+}
+
+export async function sendOrderCompleteEmail(
+  toEmail: string,
+  orderId: string,
+  sheetCount: number,
+  firstName?: string
+): Promise<boolean> {
+  try {
+    const { client } = await getUncachableResendClient();
+    
+    const name = firstName || 'there';
+    const verifiedFromEmail = 'LOD 400 Platform <noreply@deepnewbim.com>';
+    
+    const { data, error } = await client.emails.send({
+      from: verifiedFromEmail,
+      to: toEmail,
+      subject: 'Your Shop Drawings Are Ready! - LOD 400 Platform',
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="text-align: center; margin-bottom: 40px;">
+            <h1 style="color: #1a1a1a; font-size: 28px; margin: 0;">LOD 400 Platform</h1>
+          </div>
+          
+          <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 32px;">
+            <h2 style="color: #1a1a1a; font-size: 20px; margin: 0 0 16px;">Your Shop Drawings Are Ready!</h2>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 24px;">
+              Hi ${name},
+            </p>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 16px;">
+              Great news! Your LOD 400 shop drawings are complete and ready for download.
+            </p>
+            
+            <div style="background: #f9f9f9; border-radius: 6px; padding: 16px; margin: 24px 0;">
+              <p style="color: #525252; font-size: 14px; margin: 0 0 8px;"><strong>Order ID:</strong> ${orderId}</p>
+              <p style="color: #525252; font-size: 14px; margin: 0;"><strong>Sheets Processed:</strong> ${sheetCount}</p>
+            </div>
+            
+            <p style="color: #525252; font-size: 16px; line-height: 1.6; margin: 0 0 24px;">
+              You can download your deliverables from the web dashboard or through the Revit add-in.
+            </p>
+            
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="https://deepnewbim.com" style="display: inline-block; background: #d4a853; color: #000000; text-decoration: none; font-weight: 600; padding: 14px 32px; border-radius: 6px; font-size: 16px;">
+                Download Now
+              </a>
+            </div>
+            
+            <p style="color: #737373; font-size: 14px; line-height: 1.6; margin: 24px 0 0;">
+              Thank you for choosing LOD 400 Platform. If you have any questions about your deliverables, please don't hesitate to reach out.
+            </p>
+          </div>
+          
+          <div style="text-align: center; margin-top: 32px;">
+            <p style="color: #a3a3a3; font-size: 12px; margin: 0;">
+              LOD 400 Delivery Platform - Professional BIM Model Upgrades
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Resend error:', error);
+      return false;
+    }
+
+    console.log(`Order complete email sent to ${toEmail}, id: ${data?.id}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending order complete email:', error);
+    return false;
+  }
+}

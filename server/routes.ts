@@ -5,7 +5,7 @@ import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { createOrderRequestSchema, PRICE_PER_SHEET_SAR } from "@shared/schema";
 import { getUncachableStripeClient } from "./stripeClient";
-import { sendPasswordResetEmail } from "./emailService";
+import { sendPasswordResetEmail, sendOrderPaidEmail, sendOrderCompleteEmail } from "./emailService";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { z } from "zod";
@@ -533,6 +533,18 @@ export async function registerRoutes(
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {
         await storage.updateOrder(orderId, { status: "paid" });
+        
+        // Send payment confirmation email in TEST_MODE too
+        const user = await storage.getUser(userId);
+        if (user?.email) {
+          sendOrderPaidEmail(
+            user.email,
+            orderId,
+            order.sheetCount,
+            user.firstName || undefined
+          ).catch(err => console.error('Failed to send paid email:', err));
+        }
+        
         return res.redirect(`/?payment=success&order=${orderId}&test_mode=true`);
       }
 
@@ -819,6 +831,16 @@ export async function registerRoutes(
 
       console.log(`Order ${orderId} marked complete. Client email: ${order.user?.email}`);
 
+      // Send order complete notification email
+      if (order.user?.email) {
+        sendOrderCompleteEmail(
+          order.user.email,
+          orderId,
+          order.sheetCount,
+          order.user.firstName || undefined
+        ).catch(err => console.error('Failed to send complete email:', err));
+      }
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error completing order:", error);
@@ -870,6 +892,18 @@ export async function registerRoutes(
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {
         await storage.updateOrder(order.id, { status: "paid" });
+        
+        // Send payment confirmation email in TEST_MODE too
+        const user = await storage.getUser(userId);
+        if (user?.email) {
+          sendOrderPaidEmail(
+            user.email,
+            order.id,
+            order.sheetCount,
+            user.firstName || undefined
+          ).catch(err => console.error('Failed to send paid email:', err));
+        }
+        
         return res.status(201).json({ 
           order: { ...order, status: "paid" },
           checkoutUrl: null,

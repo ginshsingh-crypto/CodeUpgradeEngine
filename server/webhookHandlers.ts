@@ -1,5 +1,6 @@
 import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { storage } from './storage';
+import { sendOrderPaidEmail } from './emailService';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string, uuid: string): Promise<void> {
@@ -48,6 +49,17 @@ export class WebhookHandlers {
       });
       await storage.updateOrderStatus(orderId, "paid");
       console.log(`Order ${orderId} payment completed via webhook`);
+      
+      // Send payment confirmation email
+      const order = await storage.getOrderWithFiles(orderId);
+      if (order?.user?.email) {
+        sendOrderPaidEmail(
+          order.user.email,
+          orderId,
+          order.sheetCount,
+          order.user.firstName || undefined
+        ).catch(err => console.error('Failed to send paid email:', err));
+      }
     }
   }
 }

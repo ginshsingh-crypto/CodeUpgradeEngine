@@ -98,12 +98,15 @@ namespace LOD400Uploader.Services
                     
                     progressCallback?.Invoke(40, "Collecting link information...");
                     
-                    // Collect link paths from the background document
-                    data.LinksToCopy = CollectLinkPaths(backgroundDoc);
+                    // CRITICAL FIX: Collect links from the ORIGINAL document, not the background copy
+                    // Relative links (e.g. ..\Structure.rvt) resolve relative to the document's PathName
+                    // The background doc is in %TEMP%, so relative paths would look there (and fail)
+                    // The original document has the correct PathName for resolving relative links
+                    data.LinksToCopy = CollectLinkPaths(document);
                     
                     progressCallback?.Invoke(60, "Preparing manifest...");
                     
-                    // Create manifest JSON from the background document
+                    // Create manifest JSON from the background document (for sheet info)
                     data.ManifestJson = CreateManifestJson(backgroundDoc, selectedSheetIds, data.LinksToCopy);
                 }
                 finally

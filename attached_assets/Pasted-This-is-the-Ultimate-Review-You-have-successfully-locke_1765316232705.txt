@@ -1,0 +1,189 @@
+This is the Ultimate Review.
+
+You have successfully locked the scope to Revit 2024 (Net48), which makes your C# project and Installer correct. Your Backend Architecture (Signed URLs, BigInt database) is also solid.
+
+HOWEVER, if you deploy this exact code, Admin Uploads will fail 100% of the time, and clients with relative links will upload models with missing files.
+
+You have 3 Critical Bugs in the Frontend and 1 Logic Flaw in the Revit Add-in.
+
+Here is exactly what you need to change to get a Green Light for launch.
+
+1. The Web Upload Protocol Mismatch (Critical)
+File: client/src/components/ObjectUploader.tsx
+
+The Bug: You are still using the AWS S3 plugin (@uppy/aws-s3). Your server generates Google Cloud Signed URLs (Simple HTTP PUT). The AWS plugin tries to send an XML Multipart handshake. Google Cloud will reject this immediately.
+
+The Fix: You MUST switch to XHRUpload and force the Content-Type header to match your server's signature.
+
+Run this command: npm uninstall @uppy/aws-s3 && npm install @uppy/xhr-upload
+
+Replace the file content with this:
+
+TypeScript
+
+import { useState, useEffect, useMemo } from "react";
+import type { ReactNode } from "react";
+import Uppy from "@uppy/core";
+import DashboardModal from "@uppy/react/dashboard-modal";
+import XHRUpload from "@uppy/xhr-upload"; // <--- CHANGED FROM AWS-S3
+import type { UploadResult, UppyFile } from "@uppy/core"; // Import types
+import { Button } from "@/components/ui/button";
+import "@uppy/core/css/style.min.css";
+import "@uppy/dashboard/css/style.min.css";
+
+interface ObjectUploaderProps {
+  maxNumberOfFiles?: number;
+  maxFileSize?: number;
+  allowedFileTypes?: string[];
+  getUploadUrl: (fileName: string) => Promise<string>;
+  onUploadComplete?: (fileName: string, uploadUrl: string, fileSize: number) => Promise<void>;
+  onAllComplete?: () => void;
+  buttonClassName?: string;
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
+  children: ReactNode;
+  disabled?: boolean;
+}
+
+export function ObjectUploader({
+  maxNumberOfFiles = 1,
+  maxFileSize = 2 * 1024 * 1024 * 1024, // <--- CHANGED TO 2GB (Matches DB bigint)
+  allowedFileTypes,
+  getUploadUrl,
+  onUploadComplete,
+  onAllComplete,
+  buttonClassName,
+  buttonVariant = "default",
+  children,
+  disabled = false,
+}: ObjectUploaderProps) {
+  const [showModal, setShowModal] = useState(false);
+
+  const uppy = useMemo(() => {
+    const uppyInstance = new Uppy({
+      restrictions: {
+        maxNumberOfFiles,
+        maxFileSize,
+        allowedFileTypes,
+      },
+      autoProceed: false,
+    });
+
+    // USE XHR UPLOAD (Simple PUT) INSTEAD OF AWS S3
+    uppyInstance.use(XHRUpload, {
+      method: 'PUT',
+      formData: false, // CRITICAL: Sends raw binary, not multipart form data
+      fieldName: 'file',
+      headers: {
+        'Content-Type': 'application/zip' // Must match server/objectStorage.ts signature
+      }
+    });
+
+    // Inject the dynamic Signed URL just before upload starts
+    uppyInstance.on('upload-before', async (file) => {
+      const url = await getUploadUrl(file.name);
+      uppyInstance.setFileState(file.id, {
+        xhrUpload: { endpoint: url }
+      });
+    });
+
+    return uppyInstance;
+  }, [getUploadUrl, maxNumberOfFiles, maxFileSize, allowedFileTypes]);
+
+  useEffect(() => {
+    const handleUploadSuccess = async (file: UppyFile<Record<string, unknown>, Record<string, unknown>> | undefined) => {
+      if (file && onUploadComplete) {
+        // For XHRUpload, we know the URL is the one we requested.
+        // We retrieve it from the plugin state or just rely on the backend knowing the path.
+        // Here we grab the endpoint we set earlier.
+        // @ts-ignore
+        const uploadUrl = file.xhrUpload?.endpoint;
+        await onUploadComplete(file.name, uploadUrl, file.size ?? 0);
+      }
+    };
+
+    const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+      if (result.successful && result.successful.length > 0 && onAllComplete) {
+        onAllComplete();
+      }
+      setShowModal(false);
+      uppy.cancelAll();
+    };
+
+    uppy.on("upload-success", handleUploadSuccess);
+    uppy.on("complete", handleComplete);
+
+    return () => {
+      uppy.off("upload-success", handleUploadSuccess);
+      uppy.off("complete", handleComplete);
+    };
+  }, [uppy, onUploadComplete, onAllComplete]);
+
+  useEffect(() => {
+    return () => {
+      uppy.destroy();
+    };
+  }, [uppy]);
+
+  return (
+    <div>
+      <Button
+        onClick={() => setShowModal(true)}
+        className={buttonClassName}
+        variant={buttonVariant}
+        disabled={disabled}
+        data-testid="button-open-uploader"
+      >
+        {children}
+      </Button>
+
+      <DashboardModal
+        uppy={uppy}
+        open={showModal}
+        onRequestClose={() => {
+          setShowModal(false);
+          uppy.cancelAll();
+        }}
+        proudlyDisplayPoweredByUppy={false}
+        note="Upload your LOD 400 deliverables (ZIP file)"
+      />
+    </div>
+  );
+}
+2. The File Type Trap
+File: client/src/components/OrderDetailModal.tsx
+
+The Bug: You allow .rvt uploads (allowedFileTypes={[".zip", ".rvt", ".rfa"]}). The Result: Your server strictly signs URLs for application/zip. If you upload an RVT, the browser sends application/octet-stream, causing a 403 Forbidden error.
+
+The Fix: Restrict Admin uploads to ZIP only (Line 290).
+
+TypeScript
+
+// Change this line:
+allowedFileTypes={[".zip"]}
+3. The "Relative Link" Blindspot (C#)
+File: revit-addin/.../PackagingService.cs
+
+The Bug: In PreparePackageData (lines 72-113), you handle workshared models by opening a background copy. Then at Line 102, you call: data.LinksToCopy = CollectLinkPaths(backgroundDoc);
+
+If the user has Relative Links (e.g., ..\Structure.rvt), Revit tries to resolve them relative to backgroundDoc.PathName. Since backgroundDoc is saved in %TEMP%, Revit looks for links in %TEMP%, doesn't find them, and CollectLinkPaths skips them. You will send a model with missing links.
+
+The Fix: Always collect links from the Original Document (which is still open and valid), not the background copy.
+
+Change Line 102 to:
+
+C#
+
+// Collect links from the ORIGINAL document to ensure relative paths resolve correctly
+data.LinksToCopy = CollectLinkPaths(document); 
+Final Launch Checklist
+Apply Frontend Fixes: Switch to XHRUpload, fix 2GB limit, restrict to .zip.
+
+Apply C# Fix: Change line 102 to use document.
+
+Infrastructure: Ensure CORS is enabled on your Google Bucket:
+
+Bash
+
+echo '[{"origin": ["*"], "method": ["PUT", "OPTIONS"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]' > cors.json
+gcloud storage buckets update gs://YOUR_BUCKET --cors-file=cors.json
+Verdict: With these specific changes, your system is Gold. 🚀

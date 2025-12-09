@@ -208,11 +208,26 @@ namespace LOD400Uploader.Views
 
                 var selectedIds = selectedSheets.Select(s => s.ElementId).ToList();
                 
-                // IMPORTANT: Revit API must run on the main thread - do NOT use Task.Run here
-                packagePath = _packagingService.PackageModel(_document, selectedIds, (progress, message) =>
+                // Phase 1: Revit API operations (must run on main thread)
+                // This collects model info and creates a detached copy
+                var packageData = _packagingService.PreparePackageData(_document, selectedIds, (progress, message) =>
                 {
                     ProgressText.Text = message;
-                    ProgressBar.Value = 20 + (progress * 0.4);
+                    ProgressBar.Value = 20 + (progress * 0.2);
+                });
+
+                // Phase 2: File operations (run on background thread to prevent UI freeze)
+                // This copies linked files and creates the ZIP archive
+                packagePath = await Task.Run(() =>
+                {
+                    return _packagingService.CreatePackage(packageData, (progress, message) =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            ProgressText.Text = message;
+                            ProgressBar.Value = 40 + (progress * 0.25);
+                        });
+                    });
                 });
 
                 // At this point, packaging is complete. Close the dialog and upload in background.
@@ -275,9 +290,9 @@ namespace LOD400Uploader.Views
                     string uploadUrl = await apiService.GetUploadUrlAsync(orderId, fileName);
 
                     long fileSize = packagingService.GetFileSize(packagePath);
-                    byte[] fileData = packagingService.ReadFileBytes(packagePath);
 
-                    await apiService.UploadFileAsync(uploadUrl, fileData, (progress) => { });
+                    // Stream file directly from disk (no memory allocation for large files)
+                    await apiService.UploadFileAsync(uploadUrl, packagePath, (progress) => { });
 
                     await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, uploadUrl);
 

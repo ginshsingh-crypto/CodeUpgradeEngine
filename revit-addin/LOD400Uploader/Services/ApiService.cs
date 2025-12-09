@@ -219,18 +219,26 @@ namespace LOD400Uploader.Services
             return JsonConvert.DeserializeObject<DownloadUrlResponse>(responseJson);
         }
 
-        public async Task UploadFileAsync(string uploadUrl, byte[] fileData, Action<int> progressCallback)
+        public async Task UploadFileAsync(string uploadUrl, string filePath, Action<int> progressCallback)
         {
             using (var client = new HttpClient())
             {
                 client.Timeout = TimeSpan.FromHours(2);
 
-                var content = new ByteArrayContent(fileData);
-                content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-
                 progressCallback?.Invoke(0);
-                var response = await client.PutAsync(uploadUrl, content);
-                response.EnsureSuccessStatusCode();
+
+                // Stream the file directly from disk to avoid loading entire file into RAM
+                // This prevents OutOfMemoryException on large files (500MB-2GB)
+                using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920))
+                {
+                    using (var content = new StreamContent(fileStream, bufferSize: 81920))
+                    {
+                        content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+                        var response = await client.PutAsync(uploadUrl, content);
+                        response.EnsureSuccessStatusCode();
+                    }
+                }
+
                 progressCallback?.Invoke(100);
             }
         }

@@ -1,0 +1,88 @@
+My friend has checked our code, this is what he had to say: (This is a truly impressive, commercial-grade implementation. You have successfully bridged the "Triangle of Pain" in BIM development: Web (React), Backend (Node/Stripe), and Desktop (Revit API).
+
+Your architecture choices are excellent:
+
+Signed URLs: You correctly offload the heavy file uploads to Google Cloud Storage instead of crashing your Node server.
+
+Stripe Webhooks: You verify payments securely on the backend rather than trusting the client.
+
+Packaging Service: Your logic to recursively find and zip linked files (PackagingService.cs) is the only way to get a usable model.
+
+However, having reviewed your C# Add-in code line-by-line, I have identified 4 Critical "Showstopper" Bugs that will cause the app to crash or fail on real-world projects.
+
+You must fix these before you launch.
+
+1. The "Memory Explosion" Crash (Critical)
+Location: revit-addin/.../Services/ApiService.cs The Bug: You are reading the entire ZIP file into RAM before uploading.
+
+C#
+
+// YOUR CODE
+byte[] fileData = packagingService.ReadFileBytes(packagePath); // <--- CRASH RISK
+var content = new ByteArrayContent(fileData);
+Why it fails: Real-world Revit models are huge (500MB–2GB). Attempting to allocate a contiguous 1GB byte array in the Revit process (which is already memory-hungry) will throw System.OutOfMemoryException and crash the application.
+
+The Fix: Stream the file directly from the disk to the network. Modify ApiService.cs:
+
+C#
+
+public async Task UploadFileAsync(string uploadUrl, string filePath, Action<int> progressCallback)
+{
+    using (var client = new HttpClient())
+    {
+        client.Timeout = TimeSpan.FromHours(2); // Allow time for large uploads
+        
+        // Open file as a stream (uses minimal RAM)
+        using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+        {
+            using (var content = new StreamContent(fileStream))
+            {
+                content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+                var response = await client.PutAsync(uploadUrl, content);
+                response.EnsureSuccessStatusCode();
+            }
+        }
+    }
+}
+2. The "File Locked" Error
+Location: revit-addin/.../Services/PackagingService.cs (Line 46) The Bug:
+
+C#
+
+File.Copy(originalPath, modelCopyPath, true);
+Why it fails: You are trying to use Windows System.IO to copy a file that Revit currently has open and write-locked. If the project is Workshared (central model), this will fail with a System.IO.IOException.
+
+The Fix: Do not use File.Copy. Use the Revit API to safely export the active document.
+
+C#
+
+// Instead of File.Copy, use SaveAs to create a detached copy
+WorksharingSaveAsOptions wsOptions = new WorksharingSaveAsOptions();
+wsOptions.SaveAsCentral = true;
+
+SaveAsOptions options = new SaveAsOptions();
+options.OverwriteExistingFile = true;
+options.MaximumBackups = 1;
+if (document.IsWorkshared) options.SetWorksharingOptions(wsOptions);
+
+// Save the open document to your temp folder
+document.SaveAs(modelCopyPath, options);
+3. The "White Screen" Freeze
+Location: revit-addin/.../Views/UploadDialog.xaml.cs The Bug: You are running _packagingService.PackageModel inside the UploadButton_Click event on the Main UI Thread. Why it fails: Zipping a 500MB model takes 2–5 minutes. During this time, Revit will freeze completely. Windows will mark it as "Not Responding" (White Screen), and users will force-quit the app thinking it crashed.
+
+The Fix: Run the heavy lifting in the background.
+
+C#
+
+// 1. Gather data on Main Thread (Fast)
+string path = _document.PathName;
+var ids = selectedSheets.Select(s => s.ElementId).ToList();
+
+// 2. Run Packaging on Background Thread
+await Task.Run(() => {
+    // Use Dispatcher if you need to update UI text
+    Dispatcher.Invoke(() => ProgressText.Text = "Packaging..."); 
+    
+    // Pass string paths and IDs, NOT the Document object
+    var zipPath = _packagingService.PackageModel(path, ids, ...); )
+});

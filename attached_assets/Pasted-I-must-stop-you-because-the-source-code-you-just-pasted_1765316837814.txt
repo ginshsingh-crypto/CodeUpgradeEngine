@@ -1,0 +1,167 @@
+I must stop you because the source code you just pasted does NOT match your summary.
+
+You likely updated your mental checklist but pasted the older version of the files. If you deploy the code you just shared, Admin Uploads will fail immediately and Client relative links will break.
+
+Here is the "Reality Check" between your Summary and the Code you provided:
+
+1. Web Uploads (Frontend)
+Your Summary: "Admin uploads now send application/zip... matching XHR."
+
+The Code You Pasted (client/src/components/ObjectUploader.tsx):
+
+Line 5: import AwsS3 from "@uppy/aws-s3"; (❌ WRONG - Still AWS)
+
+Line 26: maxFileSize = 524288000 (❌ WRONG - Still 500MB)
+
+Line 48: uppyInstance.use(AwsS3... (❌ WRONG)
+
+The Result: The Dashboard will try to perform an AWS Multipart Upload to Google Cloud. It will fail with 400 Bad Request.
+
+2. Format Trap
+Your Summary: "Admin can only upload .zip files now."
+
+The Code You Pasted (client/src/components/OrderDetailModal.tsx):
+
+Line 290: allowedFileTypes={[".zip", ".rvt", ".rfa"]} (❌ WRONG)
+
+The Result: If you upload an .rvt file, your server signature (which expects application/zip) will fail validation, and GCS will return 403 Forbidden.
+
+3. Relative Path Bug (Revit Add-in)
+Your Summary: "Links with relative paths... resolve correctly."
+
+The Code You Pasted (revit-addin/.../PackagingService.cs):
+
+You DID add the resolution logic (Lines 229-236). (✅ Good)
+
+BUT at Line 102, you call: data.LinksToCopy = CollectLinkPaths(backgroundDoc); (❌ CRITICAL FAIL)
+
+The Result: backgroundDoc lives in your Temp Folder. When your new logic tries to resolve ..\Structure.rvt, it looks inside %TEMP%, finds nothing, and skips the link.
+
+🚀 Final Fixes Required to Launch
+You must manually update these 3 files to match your summary.
+
+1. Fix client/src/components/ObjectUploader.tsx
+Replace the file content with this to implement XHR and the 2GB limit:
+
+TypeScript
+
+import { useState, useEffect, useMemo } from "react";
+import type { ReactNode } from "react";
+import Uppy from "@uppy/core";
+import DashboardModal from "@uppy/react/dashboard-modal";
+import XHRUpload from "@uppy/xhr-upload"; // <--- FIX: Correct Protocol
+import type { UploadResult, UppyFile } from "@uppy/core";
+import { Button } from "@/components/ui/button";
+import "@uppy/core/css/style.min.css";
+import "@uppy/dashboard/css/style.min.css";
+
+interface ObjectUploaderProps {
+  maxNumberOfFiles?: number;
+  maxFileSize?: number;
+  allowedFileTypes?: string[];
+  getUploadUrl: (fileName: string) => Promise<string>;
+  onUploadComplete?: (fileName: string, uploadUrl: string, fileSize: number) => Promise<void>;
+  onAllComplete?: () => void;
+  buttonClassName?: string;
+  buttonVariant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
+  children: ReactNode;
+  disabled?: boolean;
+}
+
+export function ObjectUploader({
+  maxNumberOfFiles = 1,
+  maxFileSize = 2 * 1024 * 1024 * 1024, // <--- FIX: 2GB Limit
+  allowedFileTypes,
+  getUploadUrl,
+  onUploadComplete,
+  onAllComplete,
+  buttonClassName,
+  buttonVariant = "default",
+  children,
+  disabled = false,
+}: ObjectUploaderProps) {
+  const [showModal, setShowModal] = useState(false);
+
+  const uppy = useMemo(() => {
+    const uppyInstance = new Uppy({
+      restrictions: { maxNumberOfFiles, maxFileSize, allowedFileTypes },
+      autoProceed: false,
+    });
+
+    // FIX: Use XHRUpload (PUT) instead of AwsS3 (Multipart)
+    uppyInstance.use(XHRUpload, {
+      method: 'PUT',
+      formData: false, // Sends raw binary
+      fieldName: 'file',
+      headers: {
+        'Content-Type': 'application/zip' // Matches Server Signature
+      }
+    });
+
+    // Inject dynamic Signed URL
+    uppyInstance.on('upload-before', async (file) => {
+      const url = await getUploadUrl(file.name);
+      uppyInstance.setFileState(file.id, {
+        xhrUpload: { endpoint: url }
+      });
+    });
+
+    return uppyInstance;
+  }, [getUploadUrl, maxNumberOfFiles, maxFileSize, allowedFileTypes]);
+
+  useEffect(() => {
+    const handleUploadSuccess = async (file: UppyFile<Record<string, unknown>, Record<string, unknown>> | undefined) => {
+      if (file && onUploadComplete) {
+        // @ts-ignore
+        const uploadUrl = file.xhrUpload?.endpoint;
+        await onUploadComplete(file.name, uploadUrl, file.size ?? 0);
+      }
+    };
+
+    const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+      if (result.successful && result.successful.length > 0 && onAllComplete) {
+        onAllComplete();
+      }
+      setShowModal(false);
+      uppy.cancelAll();
+    };
+
+    uppy.on("upload-success", handleUploadSuccess);
+    uppy.on("complete", handleComplete);
+
+    return () => {
+      uppy.off("upload-success", handleUploadSuccess);
+      uppy.off("complete", handleComplete);
+    };
+  }, [uppy, onUploadComplete, onAllComplete]);
+
+  useEffect(() => { return () => { uppy.destroy(); }; }, [uppy]);
+
+  return (
+    <div>
+      <Button onClick={() => setShowModal(true)} className={buttonClassName} variant={buttonVariant} disabled={disabled} data-testid="button-open-uploader">
+        {children}
+      </Button>
+      <DashboardModal uppy={uppy} open={showModal} onRequestClose={() => { setShowModal(false); uppy.cancelAll(); }} proudlyDisplayPoweredByUppy={false} note="Upload your LOD 400 deliverables (ZIP file)" />
+    </div>
+  );
+}
+2. Fix revit-addin/.../PackagingService.cs
+Change Line 102 to use the Original Document:
+
+C#
+
+// Change this:
+// data.LinksToCopy = CollectLinkPaths(backgroundDoc);
+
+// To this:
+data.LinksToCopy = CollectLinkPaths(document); 
+3. Fix client/src/components/OrderDetailModal.tsx
+Change Line 290 to prevent RVT uploads:
+
+TypeScript
+
+allowedFileTypes={[".zip"]}
+Regarding CORS: Your assumption is risky. Replit's Sidecar only signs the URL. The browser sends data directly to Google Cloud. If the bucket lacks CORS headers, the browser will block the upload. Verify your bucket settings if you see "Network Error" during upload.
+
+Apply these 3 code changes, and you are Green Light. 🟢

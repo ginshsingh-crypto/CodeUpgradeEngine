@@ -123,14 +123,14 @@ namespace LOD400Uploader.Views
 
         private void ShowProgress()
         {
-            ProgressPanel.Visibility = Visibility.Visible;
-            SummaryText.Visibility = Visibility.Collapsed;
+            ProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            SummaryText.Visibility = System.Windows.Visibility.Collapsed;
         }
 
         private void HideProgress()
         {
-            ProgressPanel.Visibility = Visibility.Collapsed;
-            SummaryText.Visibility = Visibility.Visible;
+            ProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+            SummaryText.Visibility = System.Windows.Visibility.Visible;
         }
 
         private async void UploadButton_Click(object sender, RoutedEventArgs e)

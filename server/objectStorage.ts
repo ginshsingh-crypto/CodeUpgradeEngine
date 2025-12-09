@@ -111,11 +111,14 @@ export class ObjectStorageService {
     const fullPath = `${privateObjectDir}/orders/${orderId}/${objectId}_${fileName}`;
     const { bucketName, objectName } = this.parseObjectPath(fullPath);
 
+    // Important: Include contentType to prevent GCS 403 signature mismatch
+    // The C# client MUST send exactly this Content-Type header
     return this.signObjectURL({
       bucketName,
       objectName,
       method: "PUT",
       ttlSec: 3600, // 1 hour
+      contentType: "application/zip",
     });
   }
 
@@ -167,18 +170,27 @@ export class ObjectStorageService {
     objectName,
     method,
     ttlSec,
+    contentType,
   }: {
     bucketName: string;
     objectName: string;
     method: "GET" | "PUT" | "DELETE" | "HEAD";
     ttlSec: number;
+    contentType?: string;
   }): Promise<string> {
-    const request = {
+    const request: Record<string, string> = {
       bucket_name: bucketName,
       object_name: objectName,
       method,
       expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
     };
+    
+    // Include content-type in signature if provided
+    // This prevents GCS 403 errors when client sends Content-Type header
+    if (contentType) {
+      request.content_type = contentType;
+    }
+    
     const response = await fetch(
       `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
       {

@@ -227,15 +227,27 @@ namespace LOD400Uploader.Services
 
                 progressCallback?.Invoke(0);
 
-                // Stream the file directly from disk to avoid loading entire file into RAM
-                // This prevents OutOfMemoryException on large files (500MB-2GB)
+                // Get file size for progress calculation
+                var fileInfo = new FileInfo(filePath);
+                long totalBytes = fileInfo.Length;
+
+                // Stream the file directly from disk with progress reporting
                 using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920))
                 {
-                    using (var content = new StreamContent(fileStream, bufferSize: 81920))
+                    // Wrap in ProgressStream to track bytes read
+                    using (var progressStream = new ProgressStream(fileStream, totalBytes, (percent) =>
                     {
-                        content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-                        var response = await client.PutAsync(uploadUrl, content);
-                        response.EnsureSuccessStatusCode();
+                        progressCallback?.Invoke(percent);
+                    }))
+                    {
+                        using (var content = new StreamContent(progressStream, bufferSize: 81920))
+                        {
+                            content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+                            content.Headers.ContentLength = totalBytes;
+                            
+                            var response = await client.PutAsync(uploadUrl, content);
+                            response.EnsureSuccessStatusCode();
+                        }
                     }
                 }
 
@@ -249,6 +261,79 @@ namespace LOD400Uploader.Services
             {
                 throw new InvalidOperationException("Session not active. Please sign in first.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Stream wrapper that reports progress as bytes are read
+    /// This solves the "frozen progress bar" issue where HttpClient.PutAsync
+    /// doesn't report upload progress by default
+    /// </summary>
+    public class ProgressStream : Stream
+    {
+        private readonly Stream _innerStream;
+        private readonly long _totalBytes;
+        private readonly Action<int> _progressCallback;
+        private long _bytesRead;
+        private int _lastReportedPercent;
+
+        public ProgressStream(Stream innerStream, long totalBytes, Action<int> progressCallback)
+        {
+            _innerStream = innerStream;
+            _totalBytes = totalBytes;
+            _progressCallback = progressCallback;
+            _bytesRead = 0;
+            _lastReportedPercent = 0;
+        }
+
+        public override bool CanRead => _innerStream.CanRead;
+        public override bool CanSeek => _innerStream.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => _innerStream.Length;
+        public override long Position
+        {
+            get => _innerStream.Position;
+            set => _innerStream.Position = value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int bytesRead = _innerStream.Read(buffer, offset, count);
+            _bytesRead += bytesRead;
+            ReportProgress();
+            return bytesRead;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken)
+        {
+            int bytesRead = await _innerStream.ReadAsync(buffer, offset, count, cancellationToken);
+            _bytesRead += bytesRead;
+            ReportProgress();
+            return bytesRead;
+        }
+
+        private void ReportProgress()
+        {
+            if (_totalBytes <= 0) return;
+            int percent = (int)((_bytesRead * 100) / _totalBytes);
+            
+            // Only report when progress changes by at least 1%
+            if (percent > _lastReportedPercent)
+            {
+                _lastReportedPercent = percent;
+                _progressCallback?.Invoke(percent);
+            }
+        }
+
+        public override void Flush() => _innerStream.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => _innerStream.Seek(offset, origin);
+        public override void SetLength(long value) => _innerStream.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            // Don't dispose inner stream - caller owns it
+            base.Dispose(disposing);
         }
     }
 }

@@ -35,6 +35,8 @@ namespace LOD400Uploader.Services
         /// <summary>
         /// Phase 1: Collect data using Revit API (MUST run on main thread)
         /// This is fast and returns data needed for file operations
+        /// IMPORTANT: We avoid SaveAs on the active document to prevent "Session Hijack"
+        /// where the user's Revit switches to the temp file
         /// </summary>
         public PackageData PreparePackageData(Document document, List<ElementId> selectedSheetIds, Action<int, string> progressCallback)
         {
@@ -64,29 +66,67 @@ namespace LOD400Uploader.Services
             
             progressCallback?.Invoke(20, isWorkshared ? "Creating detached copy of workshared model..." : "Copying model file...");
             
-            // Use Revit's SaveAs API instead of File.Copy to avoid file lock issues
-            SaveAsOptions saveOptions = new SaveAsOptions();
-            saveOptions.OverwriteExistingFile = true;
-            saveOptions.MaximumBackups = 1;
+            // SAFE APPROACH: Copy file first, then open the copy in background
+            // This prevents "Session Hijack" where SaveAs switches the user's active document
             
             if (isWorkshared)
             {
-                WorksharingSaveAsOptions wsOptions = new WorksharingSaveAsOptions();
-                wsOptions.SaveAsCentral = false;
-                saveOptions.SetWorksharingOptions(wsOptions);
+                // For workshared models, we cannot File.Copy (file is locked by Revit server)
+                // Instead, open directly from original with DetachAndPreserveWorksets
+                ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(originalPath);
+                OpenOptions openOptions = new OpenOptions();
+                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                
+                // Open the copy in background (this does NOT affect the user's active document)
+                Document backgroundDoc = document.Application.OpenDocumentFile(modelPath, openOptions);
+                
+                try
+                {
+                    progressCallback?.Invoke(30, "Saving detached copy...");
+                    
+                    // Save the detached copy to our temp folder
+                    SaveAsOptions saveOptions = new SaveAsOptions();
+                    saveOptions.OverwriteExistingFile = true;
+                    saveOptions.MaximumBackups = 1;
+                    
+                    // Important: Mark as non-workshared for the copy
+                    WorksharingSaveAsOptions wsOptions = new WorksharingSaveAsOptions();
+                    wsOptions.SaveAsCentral = false;
+                    saveOptions.SetWorksharingOptions(wsOptions);
+                    
+                    backgroundDoc.SaveAs(data.ModelCopyPath, saveOptions);
+                    
+                    progressCallback?.Invoke(40, "Collecting link information...");
+                    
+                    // Collect link paths from the background document
+                    data.LinksToCopy = CollectLinkPaths(backgroundDoc);
+                    
+                    progressCallback?.Invoke(60, "Preparing manifest...");
+                    
+                    // Create manifest JSON from the background document
+                    data.ManifestJson = CreateManifestJson(backgroundDoc, selectedSheetIds, data.LinksToCopy);
+                }
+                finally
+                {
+                    // CRITICAL: Close the background document so we can ZIP it later
+                    backgroundDoc.Close(false);
+                }
             }
-            
-            document.SaveAs(data.ModelCopyPath, saveOptions);
-
-            progressCallback?.Invoke(40, "Collecting link information...");
-            
-            // Collect link paths using Revit API (fast)
-            data.LinksToCopy = CollectLinkPaths(document);
-
-            progressCallback?.Invoke(60, "Preparing manifest...");
-            
-            // Create manifest JSON using Revit API
-            data.ManifestJson = CreateManifestJson(document, selectedSheetIds, data.LinksToCopy);
+            else
+            {
+                // For non-workshared models, simple File.Copy works fine
+                File.Copy(originalPath, data.ModelCopyPath, true);
+                
+                progressCallback?.Invoke(40, "Collecting link information...");
+                
+                // Collect link paths from the original document (safe - it's not workshared)
+                data.LinksToCopy = CollectLinkPaths(document);
+                
+                progressCallback?.Invoke(60, "Preparing manifest...");
+                
+                // Create manifest JSON from the original document
+                data.ManifestJson = CreateManifestJson(document, selectedSheetIds, data.LinksToCopy);
+            }
 
             progressCallback?.Invoke(100, "Model data collected");
             
@@ -108,6 +148,11 @@ namespace LOD400Uploader.Services
                 progressCallback?.Invoke(10, "Copying linked files...");
                 string linksDir = Path.Combine(data.TempDir, "Links");
                 var linkResults = CopyLinkFiles(data.LinksToCopy, linksDir, progressCallback);
+
+                // Re-path links using TransmissionData API
+                // This ensures links load correctly when opened on a different machine
+                progressCallback?.Invoke(55, "Re-pathing links for portability...");
+                RepathLinksForTransmission(data.ModelCopyPath, linkResults);
 
                 // Write manifest with actual copy results
                 progressCallback?.Invoke(60, "Writing manifest...");
@@ -140,6 +185,26 @@ namespace LOD400Uploader.Services
             }
         }
 
+        /// <summary>
+        /// Extensions that are "heavyweight" and should be skipped
+        /// Point clouds and coordination models can be 10-50GB
+        /// </summary>
+        private static readonly HashSet<string> HeavyweightExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".rcp", ".rcs",  // Point clouds
+            ".nwd", ".nwc",  // Navisworks coordination models
+            ".pts", ".xyz",  // Point cloud formats
+            ".las", ".laz",  // LiDAR formats
+            ".e57"           // ASTM point cloud format
+        };
+
+        private bool IsHeavyweightFile(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return false;
+            string ext = Path.GetExtension(filePath);
+            return HeavyweightExtensions.Contains(ext);
+        }
+
         private List<LinkToCopy> CollectLinkPaths(Document document)
         {
             var links = new List<LinkToCopy>();
@@ -162,6 +227,12 @@ namespace LOD400Uploader.Services
                             string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetAbsolutePath());
                             if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
                             {
+                                // Skip heavyweight files (point clouds, coordination models)
+                                if (IsHeavyweightFile(linkPath))
+                                {
+                                    continue;
+                                }
+
                                 links.Add(new LinkToCopy
                                 {
                                     SourcePath = linkPath,
@@ -175,7 +246,7 @@ namespace LOD400Uploader.Services
                     catch { }
                 }
 
-                // Get CAD link paths
+                // Get CAD link paths (DWG, DXF, etc. - these are usually small)
                 var cadLinks = new FilteredElementCollector(document)
                     .OfClass(typeof(CADLinkType))
                     .Cast<CADLinkType>()
@@ -191,6 +262,12 @@ namespace LOD400Uploader.Services
                             string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetAbsolutePath());
                             if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
                             {
+                                // Skip heavyweight files
+                                if (IsHeavyweightFile(linkPath))
+                                {
+                                    continue;
+                                }
+
                                 links.Add(new LinkToCopy
                                 {
                                     SourcePath = linkPath,
@@ -207,6 +284,66 @@ namespace LOD400Uploader.Services
             catch { }
 
             return links;
+        }
+
+        /// <summary>
+        /// Re-path links using TransmissionData API
+        /// This ensures links load correctly when opened on a different machine
+        /// </summary>
+        private void RepathLinksForTransmission(string modelCopyPath, LinkCollectionResult linkResults)
+        {
+            try
+            {
+                // Read transmission data from the saved model copy
+                TransmissionData transData = TransmissionData.ReadTransmissionData(modelCopyPath);
+                if (transData == null) return;
+
+                bool isModified = false;
+                
+                // Build a lookup of copied files by original path
+                var copiedFilesByOriginal = linkResults.IncludedLinks
+                    .Where(l => !string.IsNullOrEmpty(l.OriginalPath) && !string.IsNullOrEmpty(l.CopiedAs))
+                    .ToDictionary(l => l.OriginalPath, l => l.CopiedAs, StringComparer.OrdinalIgnoreCase);
+
+                foreach (ElementId id in transData.GetAllExternalFileReferenceIds())
+                {
+                    try
+                    {
+                        ExternalFileReference refData = transData.GetLastSavedReferenceData(id);
+                        if (refData == null) continue;
+
+                        // Only re-path Revit links (not IFC, DWG, etc.)
+                        if (refData.ExternalFileReferenceType == ExternalFileReferenceType.RevitLink)
+                        {
+                            string originalPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(refData.GetAbsolutePath());
+                            
+                            // Check if we copied this link
+                            if (copiedFilesByOriginal.TryGetValue(originalPath, out string copiedFileName))
+                            {
+                                // Create relative path to Links folder
+                                string newPath = "Links\\" + copiedFileName;
+                                ModelPath newModelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(newPath);
+                                
+                                transData.SetDesiredReferenceData(id, newModelPath, PathType.Relative, true);
+                                isModified = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (isModified)
+                {
+                    // Mark as transmitted - tells Revit to check relative paths first
+                    transData.IsTransmitted = true;
+                    TransmissionData.WriteTransmissionData(modelCopyPath, transData);
+                }
+            }
+            catch
+            {
+                // TransmissionData might fail on some model types - that's OK
+                // Links will still work, just need manual re-pathing
+            }
         }
 
         private LinkCollectionResult CopyLinkFiles(List<LinkToCopy> links, string linksDir, Action<int, string> progressCallback)
@@ -287,16 +424,27 @@ namespace LOD400Uploader.Services
                 }
             }
 
+            // Collect detailed environment info for version compatibility warnings
+            var app = document.Application;
+            var environment = new
+            {
+                revitVersion = app?.VersionNumber ?? "Unknown",     // e.g., "2023"
+                revitBuild = app?.VersionBuild ?? "Unknown",        // e.g., "2023.1.2"
+                revitProduct = app?.VersionName ?? "Unknown",       // e.g., "Autodesk Revit 2023"
+                language = app?.Language.ToString() ?? "Unknown",
+                username = app?.Username ?? "Unknown"
+            };
+
             var manifest = new
             {
                 projectName = document.Title ?? "Untitled",
                 projectNumber = GetProjectInfo(document, BuiltInParameter.PROJECT_NUMBER),
                 clientName = GetProjectInfo(document, BuiltInParameter.CLIENT_NAME),
                 exportDate = DateTime.UtcNow.ToString("o"),
-                revitVersion = document.Application?.VersionNumber ?? "Unknown",
                 isWorkshared = document.IsWorkshared,
                 sheetCount = sheets.Count,
                 sheets = sheets,
+                environment = environment,  // Detailed environment for version warnings
                 links = new
                 {
                     toInclude = links.Select(l => new

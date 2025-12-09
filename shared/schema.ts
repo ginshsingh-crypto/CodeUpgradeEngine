@@ -6,6 +6,7 @@ import {
   timestamp,
   varchar,
   integer,
+  bigint,
   text,
   pgEnum,
 } from "drizzle-orm/pg-core";
@@ -72,7 +73,8 @@ export const files = pgTable("files", {
   orderId: varchar("order_id").notNull().references(() => orders.id),
   fileType: fileTypeEnum("file_type").notNull(),
   fileName: varchar("file_name").notNull(),
-  fileSize: integer("file_size"),
+  // Use bigint for file sizes - integer maxes out at ~2.14GB, Revit models can exceed this
+  fileSize: bigint("file_size", { mode: "number" }),
   storageKey: varchar("storage_key").notNull(),
   mimeType: varchar("mime_type"),
   createdAt: timestamp("created_at").defaultNow(),

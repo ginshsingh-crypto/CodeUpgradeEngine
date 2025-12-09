@@ -23,7 +23,7 @@ interface ObjectUploaderProps {
 
 export function ObjectUploader({
   maxNumberOfFiles = 1,
-  maxFileSize = 524288000,
+  maxFileSize = 2 * 1024 * 1024 * 1024, // 2GB - matches database bigint
   allowedFileTypes,
   getUploadUrl,
   onUploadComplete,
@@ -54,7 +54,9 @@ export function ObjectUploader({
           method: "PUT" as const,
           url,
           headers: {
-            "Content-Type": file.type || "application/octet-stream",
+            // CRITICAL: Must be "application/zip" to match server's signed URL signature
+            // Using file.type would send "application/octet-stream" causing GCS 403 Forbidden
+            "Content-Type": "application/zip",
           },
         };
       },

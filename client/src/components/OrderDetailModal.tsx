@@ -287,7 +287,7 @@ export function OrderDetailModal({
                     getUploadUrl={getUploadUrl}
                     onUploadComplete={handleUploadComplete}
                     onAllComplete={handleAllUploadsComplete}
-                    allowedFileTypes={[".zip", ".rvt", ".rfa"]}
+                    allowedFileTypes={[".zip"]}
                     buttonVariant="outline"
                     disabled={isUploading}
                   >

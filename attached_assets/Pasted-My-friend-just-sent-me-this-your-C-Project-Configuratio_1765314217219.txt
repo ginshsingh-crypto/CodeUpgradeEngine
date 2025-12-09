@@ -1,0 +1,113 @@
+My friend just sent me this : 
+
+( your C# Project Configuration (.csproj) is 100% correct. You do not need to change it.
+
+However, while your Architecture is now perfect (Signed URLs, Background Copying, Link Repathing), your Implementation still has 5 "Silent Killers" in the code you just posted.
+
+If you deploy this code right now:
+
+You (the Admin) cannot upload deliverables (Protocol Mismatch).
+
+You cannot upload large files (Artificial Limit).
+
+Clients might upload "empty" models (Relative Path Bug).
+
+The Web Dashboard will block requests (CORS).
+
+Here is your Ultimate Final Review.
+
+1. The Protocol Mismatch (Web Dashboard Broken)
+File: client/src/components/ObjectUploader.tsx Severity: 🔴 Showstopper
+
+The Bug: You are still using import AwsS3 from "@uppy/aws-s3". The Reality: Your backend generates Google Cloud Signed URLs (Simple HTTP PUT). The AWS plugin uses a complex XML handshake that Google Cloud does not support. The Result: Admin uploads will fail immediately with 400 Bad Request.
+
+The Fix: Switch to XHRUpload.
+
+Run: npm uninstall @uppy/aws-s3 & npm install @uppy/xhr-upload
+
+Update ObjectUploader.tsx:
+
+TypeScript
+
+import XHRUpload from "@uppy/xhr-upload"; // <--- CHANGED
+
+// ... inside useMemo ...
+// REPLACE AwsS3 usage with this:
+uppyInstance.use(XHRUpload, {
+    method: 'PUT',
+    formData: false, // Sends raw binary
+    fieldName: 'file',
+    headers: {
+        'Content-Type': 'application/zip' // Must match server signature
+    }
+});
+
+// Inject the URL dynamically
+uppyInstance.on('upload-before', async (file) => {
+    const url = await getUploadUrl(file.name);
+    uppyInstance.setFileState(file.id, {
+        xhrUpload: { endpoint: url }
+    });
+});
+2. The "Artificial Ceiling" (File Size Limit)
+File: client/src/components/ObjectUploader.tsx Severity: 🟠 High
+
+The Bug: You updated your Database to use bigint (Great!), but your Frontend component still has a hardcoded limit: maxFileSize = 524288000 (500 MB). The Result: If a client (or you) tries to upload a 600MB file, the Dashboard will reject it before it even touches the server.
+
+The Fix: Increase the default prop in ObjectUploader.tsx:
+
+TypeScript
+
+maxFileSize = 2 * 1024 * 1024 * 1024, // 2GB
+3. The "Format Trap" (Content-Type Mismatch)
+File: client/src/components/OrderDetailModal.tsx Severity: 🟠 High
+
+The Bug: Your modal allows .rvt files: allowedFileTypes={[".zip", ".rvt", ".rfa"]}. The Conflict: Your Server (objectStorage.ts) strictly signs URLs with contentType: "application/zip". The Result: If you upload a raw .rvt file, the browser sends application/octet-stream. Google Cloud checks the signature, sees the mismatch, and returns 403 Forbidden.
+
+The Fix: Restrict uploads to .zip only (which is better for bandwidth anyway).
+
+TypeScript
+
+// OrderDetailModal.tsx
+allowedFileTypes={[".zip"]} 
+4. The "Fake Missing Links" (Revit Logic Bug)
+File: revit-addin/.../PackagingService.cs Severity: 🟡 Medium (Data Risk)
+
+The Bug: In CollectLinkPaths, you use File.Exists(linkPath). If a client linked a file using a Relative Path (e.g., ..\Structure.rvt), Revit returns that string. When your code runs File.Exists("..\Structure.rvt"), it checks relative to C:\Program Files\Autodesk\Revit 2024\, NOT the project folder. It returns false, and the link is silently skipped.
+
+The Fix: Resolve the path before checking existence.
+
+C#
+
+// Inside CollectLinkPaths loop
+string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetPath());
+
+// ADD THIS:
+if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+{
+    string hostFolder = Path.GetDirectoryName(document.PathName);
+    linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+}
+
+if (File.Exists(linkPath)) { /* Add to list */ }
+5. The "Hidden Wall" (Infrastructure)
+Severity: 🟡 Medium
+
+The Issue: Your C# Add-in ignores CORS, but your Web Dashboard (Browser) enforces it. If you haven't configured your Google Cloud Storage bucket, the browser will block the upload request.
+
+The Fix: Run this in Cloud Shell:
+
+Bash
+
+echo '[{"origin": ["*"], "method": ["PUT", "OPTIONS"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]' > cors.json
+gcloud storage buckets update gs://YOUR_BUCKET_NAME --cors-file=cors.json
+Final Summary
+You have built a "Ferrari" engine, but:
+
+You put Diesel in the Web Uploader (AwsS3 plugin).
+
+You put a Speed Limiter on the file size (500MB).
+
+You forgot the Keys for the trunk (CORS).
+
+Apply these 5 fixes, and you are ready to launch. 🚀   )

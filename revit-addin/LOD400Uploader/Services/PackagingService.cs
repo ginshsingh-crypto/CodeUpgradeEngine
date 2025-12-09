@@ -222,9 +222,19 @@ namespace LOD400Uploader.Services
                     try
                     {
                         var externalRef = linkType.GetExternalFileReference();
-                        if (externalRef != null && externalRef.PathType == PathType.Absolute)
+                        if (externalRef != null)
                         {
-                            string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetAbsolutePath());
+                            string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetPath());
+                            
+                            // CRITICAL FIX: Resolve relative paths before checking existence
+                            // Without this, File.Exists("..\Structure.rvt") checks relative to Revit.exe folder
+                            // instead of the project folder, causing links to be silently skipped
+                            if (!string.IsNullOrEmpty(linkPath) && !Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            {
+                                string hostFolder = Path.GetDirectoryName(document.PathName);
+                                linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                            }
+                            
                             if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
                             {
                                 // Skip heavyweight files (point clouds, coordination models)
@@ -259,7 +269,15 @@ namespace LOD400Uploader.Services
                         var externalRef = cadLink.GetExternalFileReference();
                         if (externalRef != null)
                         {
-                            string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetAbsolutePath());
+                            string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetPath());
+                            
+                            // CRITICAL FIX: Resolve relative paths before checking existence
+                            if (!string.IsNullOrEmpty(linkPath) && !Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            {
+                                string hostFolder = Path.GetDirectoryName(document.PathName);
+                                linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                            }
+                            
                             if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
                             {
                                 // Skip heavyweight files

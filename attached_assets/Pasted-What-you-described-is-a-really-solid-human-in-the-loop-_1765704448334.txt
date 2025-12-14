@@ -1,0 +1,136 @@
+What you described is a really solid “human-in-the-loop, pay-per-sheet” workflow for an MVP—especially for something as heavy as Revit LOD upgrades. The biggest win is that it’s frictionless for the client (stay in Revit → pick sheets → pay → upload → done) while keeping your “magic” (SysQue / EvolveMEP / VAVETEK / BAMROC / BIMLOGIQ / smart annotation) on your side.
+
+Also: based on what you’ve implemented so far, you’re already avoiding a bunch of classic Revit-upload nightmares (workshared detach, link portability, big-file streaming, etc.). 
+
+CodeBase
+
+What’s strong about this approach
+1) The client UX is simple and “obvious”
+
+Your add-in is literally doing the right thing: it loads the sheets from the model, lets them tick what they want, and your UI keeps a running selected count. 
+
+CodeBase
+
+That’s the correct mental model for clients: “I’m buying shop drawings for these sheets.”
+
+2) You’re packaging the model in a way that actually travels
+
+This is huge. Your packaging service:
+
+Forces the model to be saved + not dirty before upload (prevents “I uploaded something different than what I think I uploaded”). 
+
+CodeBase
+
+Handles workshared models safely by opening a background document and detaching from central (without hijacking the user’s current session). 
+
+CodeBase
+
+Copies linked files, then repaths links for portability, and writes a manifest.json into the package before zipping. 
+
+CodeBase
+
+That’s basically “eTransmit thinking” baked into your flow—exactly what you want.
+
+3) You’re capturing the real intent (sheet list + environment) in the manifest
+
+Even though your order currently only stores a sheetCount, the package itself includes a manifest with the actual sheet IDs/numbers/names and even Revit environment info (version/build). That’s incredibly valuable for:
+
+avoiding disputes (“which sheets did I pay for?”)
+
+version compatibility (“why can’t you open this?”)
+
+audit trail (“what exactly was submitted?”) 
+
+CodeBase
+
+4) Your file transfer is “the right kind of scalable”
+
+You’re not proxying gigabyte uploads through your web server; you’re issuing signed storage URLs and uploading directly with Content-Type: application/zip. That is the correct architecture for large Revit packages. 
+
+CodeBase
+
+And you’re already guarding against a common GCS signed-URL trap by signing with content-type and requiring the client to match it. 
+
+CodeBase
+
+On the add-in side, you’re streaming uploads from disk (not loading into memory), which is exactly what you need for big files. 
+
+CodeBase
+
+5) The lifecycle/status model matches the business process
+
+Your states (pending → paid → uploaded → processing → complete) are exactly the states your workflow needs, and you’re using them consistently (including gating download until complete). 
+
+CodeBase
+
+That’s important for client trust because it’s transparent.
+
+The main risks / gaps I’d address next
+1) “Sheet count” is good for pricing, but “sheet list” is what people argue about
+
+Right now, your order record stores only sheetCount (plus totals/status). 
+
+CodeBase
+
+But the client experience is “I selected these sheets.” If a client later says “Sheet A102 was included” and you say “No, you only bought 12 sheets,” you’re in scope-dispute territory.
+
+Best next upgrade: store the selected sheet list server-side (sheet numbers + names + IDs) at order creation or at upload-complete time.
+
+You already have the data in the manifest.json. 
+
+CodeBase
+
+
+So you can either:
+
+parse manifest.json after upload and write it into DB, or
+
+send sheet list in create-order (or in upload-complete) and persist it.
+
+2) Clarify deliverables and “what changes” inside the model
+
+Clients may assume:
+
+either “you will only touch these sheets”
+
+or “you will upgrade the whole model to LOD 400”
+
+In reality you’ll often need to touch model content (families, parameters, spool pieces, fabrication parts, hangers, etc.) to make shop drawings correct.
+
+Recommendation: put this in writing in the platform UI + in your terms:
+
+what gets upgraded
+
+what “shop drawings” means in your context
+
+whether you deliver PDFs, RVT, both
+
+what is excluded (coordination, clash responsibility, stamping, etc.)
+
+3) Confidentiality / IP / data retention
+
+You’re receiving a full DD model. That’s sensitive IP. You should have a clear and explicit policy:
+
+encryption at rest (or at least “storage provider encryption”)
+
+who can access it
+
+retention period (e.g., auto-delete after X days after completion)
+
+NDA language / ownership of output
+
+Even if you’re a small operation, enterprise clients will ask.
+
+4) Big-upload reliability (the “hotel Wi‑Fi problem”)
+
+You’re already doing the right thing with direct-to-storage and disk streaming, but a 2–6GB upload can still fail midway.
+
+Eventually, consider:
+
+resumable upload support
+
+retry + resume strategies
+
+checksums/hashes stored with the order
+
+Not mandatory for MVP, but it becomes important as you scale.

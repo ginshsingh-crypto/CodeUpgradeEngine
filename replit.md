@@ -57,6 +57,7 @@ Preferred communication style: Simple, everyday language.
 - `users` - User profiles with Replit Auth integration (id, email, firstName, lastName, isAdmin, passwordHash)
 - `orders` - Order records with status tracking (pending → paid → uploaded → processing → complete)
 - `files` - File metadata and storage paths (type: input/output, orderId foreign key)
+- `orderSheets` - Individual sheet metadata per order (sheetElementId, sheetNumber, sheetName) for dispute resolution
 - `addinSessions` - Session tokens for Revit add-in authentication (SHA-256 hashed tokens)
 - `sessions` - Session persistence for Replit Auth
 - Stripe schema managed by stripe-replit-sync package
@@ -163,6 +164,14 @@ Preferred communication style: Simple, everyday language.
 - Supports Revit 2024 (adaptable for 2020-2025)
 
 ## Recent Changes
+
+**December 17, 2025 (V2 Enhancements)**:
+- Added `orderSheets` table to store individual sheet metadata (sheetElementId, sheetNumber, sheetName) per order for dispute resolution and audit trail
+- Updated API endpoints (web and Revit add-in) to accept and persist sheets array with order creation
+- Frontend OrderDetailModal now displays scrollable list of selected sheets with number and name
+- Revit add-in sends sheet details with order creation for server-side storage
+- Added memory warning in Revit add-in before packaging (warns if < 2GB available RAM)
+- Uses Microsoft.VisualBasic.Devices.ComputerInfo.AvailablePhysicalMemory for accurate system memory detection
 
 **December 6, 2025**:
 - **BREAKING**: Replaced Replit Auth with custom email/password authentication for web dashboard

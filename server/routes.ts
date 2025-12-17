@@ -1022,6 +1022,54 @@ export async function registerRoutes(
     }
   });
 
+  // Resumable upload endpoints for large files
+  app.post("/api/addin/orders/:orderId/resumable-upload", isAddinAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.apiUser.id;
+      const { orderId } = req.params;
+      const { fileName, fileSize } = req.body;
+
+      if (!fileName || !fileSize) {
+        return res.status(400).json({ message: "fileName and fileSize are required" });
+      }
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      if (order.status !== "paid") {
+        return res.status(400).json({ message: "Order must be paid before uploading files" });
+      }
+
+      const { sessionUri, storageKey } = await objectStorage.initiateResumableUpload(orderId, fileName, fileSize);
+      res.json({ sessionUri, storageKey });
+    } catch (error) {
+      console.error("Error initiating resumable upload:", error);
+      res.status(500).json({ message: "Failed to initiate resumable upload" });
+    }
+  });
+
+  app.post("/api/addin/resumable-upload-status", isAddinAuthenticated, async (req: any, res) => {
+    try {
+      const { sessionUri } = req.body;
+
+      if (!sessionUri) {
+        return res.status(400).json({ message: "sessionUri is required" });
+      }
+
+      const { bytesUploaded, isComplete } = await objectStorage.checkResumableUploadStatus(sessionUri);
+      res.json({ bytesUploaded, isComplete });
+    } catch (error) {
+      console.error("Error checking resumable upload status:", error);
+      res.status(500).json({ message: "Failed to check upload status" });
+    }
+  });
+
   app.post("/api/addin/orders/:orderId/upload-complete", isAddinAuthenticated, async (req: any, res) => {
     try {
       const userId = req.apiUser.id;

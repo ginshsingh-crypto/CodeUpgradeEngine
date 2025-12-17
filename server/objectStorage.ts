@@ -122,6 +122,79 @@ export class ObjectStorageService {
     });
   }
 
+  /**
+   * Initiates a resumable upload session with GCS.
+   * Returns the resumable session URI that the client can use for chunked uploads.
+   * The session URI is valid for 7 days.
+   */
+  async initiateResumableUpload(orderId: string, fileName: string, fileSize: number): Promise<{ sessionUri: string; storageKey: string }> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    if (!privateObjectDir) {
+      throw new Error("PRIVATE_OBJECT_DIR not set.");
+    }
+
+    const objectId = randomUUID();
+    const fullPath = `${privateObjectDir}/orders/${orderId}/${objectId}_${fileName}`;
+    const { bucketName, objectName } = this.parseObjectPath(fullPath);
+
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+
+    // Create a resumable upload session
+    const [sessionUri] = await file.createResumableUpload({
+      metadata: {
+        contentType: "application/zip",
+      },
+    });
+
+    return {
+      sessionUri,
+      storageKey: fullPath,
+    };
+  }
+
+  /**
+   * Checks the status of a resumable upload session.
+   * Returns the number of bytes already uploaded, or -1 if the session is complete/invalid.
+   */
+  async checkResumableUploadStatus(sessionUri: string): Promise<{ bytesUploaded: number; isComplete: boolean }> {
+    try {
+      // Query the session URI with a Content-Range header to check status
+      const response = await fetch(sessionUri, {
+        method: "PUT",
+        headers: {
+          "Content-Length": "0",
+          "Content-Range": "bytes */*",
+        },
+      });
+
+      if (response.status === 200 || response.status === 201) {
+        // Upload is complete
+        return { bytesUploaded: -1, isComplete: true };
+      } else if (response.status === 308) {
+        // Incomplete - parse Range header to get bytes uploaded
+        const rangeHeader = response.headers.get("Range");
+        if (rangeHeader) {
+          // Format: "bytes=0-12345"
+          const match = rangeHeader.match(/bytes=0-(\d+)/);
+          if (match) {
+            return { bytesUploaded: parseInt(match[1], 10) + 1, isComplete: false };
+          }
+        }
+        // No bytes uploaded yet
+        return { bytesUploaded: 0, isComplete: false };
+      } else if (response.status === 404) {
+        // Session expired or invalid
+        return { bytesUploaded: -1, isComplete: false };
+      }
+
+      return { bytesUploaded: -1, isComplete: false };
+    } catch (error) {
+      console.error("Error checking resumable upload status:", error);
+      return { bytesUploaded: -1, isComplete: false };
+    }
+  }
+
   async getDownloadURL(storageKey: string): Promise<string> {
     const { bucketName, objectName } = this.parseObjectPath(storageKey);
     

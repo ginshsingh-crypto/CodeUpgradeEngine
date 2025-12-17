@@ -132,4 +132,57 @@ namespace LOD400Uploader.Models
         [JsonProperty("uploadURL")]
         public string UploadURL { get; set; }
     }
+
+    public class ResumableUploadResponse
+    {
+        [JsonProperty("sessionUri")]
+        public string SessionUri { get; set; }
+
+        [JsonProperty("storageKey")]
+        public string StorageKey { get; set; }
+    }
+
+    public class ResumableUploadStatus
+    {
+        [JsonProperty("bytesUploaded")]
+        public long BytesUploaded { get; set; }
+
+        [JsonProperty("isComplete")]
+        public bool IsComplete { get; set; }
+    }
+
+    /// <summary>
+    /// Represents an active resumable upload session that can be persisted and resumed.
+    /// </summary>
+    public class ResumableUploadSession
+    {
+        [JsonProperty("orderId")]
+        public string OrderId { get; set; }
+
+        [JsonProperty("fileName")]
+        public string FileName { get; set; }
+
+        [JsonProperty("filePath")]
+        public string FilePath { get; set; }
+
+        [JsonProperty("fileSize")]
+        public long FileSize { get; set; }
+
+        [JsonProperty("sessionUri")]
+        public string SessionUri { get; set; }
+
+        [JsonProperty("storageKey")]
+        public string StorageKey { get; set; }
+
+        [JsonProperty("bytesUploaded")]
+        public long BytesUploaded { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        /// <summary>
+        /// Checks if this session can still be used (GCS sessions expire after 7 days).
+        /// </summary>
+        public bool IsExpired => DateTime.UtcNow > CreatedAt.AddDays(7);
+    }
 }

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using LOD400Uploader.Models;
@@ -252,6 +253,177 @@ namespace LOD400Uploader.Services
                 }
 
                 progressCallback?.Invoke(100);
+            }
+        }
+
+        /// <summary>
+        /// Initiates a resumable upload session with the server.
+        /// </summary>
+        public async Task<ResumableUploadSession> InitiateResumableUploadAsync(string orderId, string fileName, long fileSize)
+        {
+            EnsureSession();
+            var request = new { fileName, fileSize };
+            var json = JsonConvert.SerializeObject(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync($"{_baseUrl}/api/addin/orders/{orderId}/resumable-upload", content);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<ResumableUploadResponse>(responseJson);
+
+            return new ResumableUploadSession
+            {
+                OrderId = orderId,
+                FileName = fileName,
+                FileSize = fileSize,
+                SessionUri = result.SessionUri,
+                StorageKey = result.StorageKey,
+                BytesUploaded = 0,
+                CreatedAt = DateTime.UtcNow
+            };
+        }
+
+        /// <summary>
+        /// Checks the status of a resumable upload.
+        /// </summary>
+        public async Task<ResumableUploadStatus> CheckResumableUploadStatusAsync(string sessionUri)
+        {
+            EnsureSession();
+            var request = new { sessionUri };
+            var json = JsonConvert.SerializeObject(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync($"{_baseUrl}/api/addin/resumable-upload-status", content);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonConvert.DeserializeObject<ResumableUploadStatus>(responseJson);
+        }
+
+        /// <summary>
+        /// Uploads a file using resumable upload with chunked transfer.
+        /// Supports resume from interruption via the session.
+        /// </summary>
+        public async Task UploadFileResumableAsync(
+            ResumableUploadSession session,
+            string filePath,
+            Action<int> progressCallback,
+            Action<ResumableUploadSession> saveSessionCallback,
+            CancellationToken cancellationToken = default)
+        {
+            const int ChunkSize = 8 * 1024 * 1024; // 8 MB chunks
+            
+            var fileInfo = new FileInfo(filePath);
+            long totalBytes = fileInfo.Length;
+            long startByte = session.BytesUploaded;
+
+            // If we're resuming, check the actual bytes uploaded on GCS
+            if (startByte > 0)
+            {
+                var status = await CheckResumableUploadStatusAsync(session.SessionUri);
+                if (status.IsComplete)
+                {
+                    progressCallback?.Invoke(100);
+                    return; // Already complete
+                }
+                if (status.BytesUploaded >= 0)
+                {
+                    startByte = status.BytesUploaded;
+                    session.BytesUploaded = startByte;
+                    saveSessionCallback?.Invoke(session);
+                }
+            }
+
+            // Report initial progress
+            int initialPercent = totalBytes > 0 ? (int)((startByte * 100) / totalBytes) : 0;
+            progressCallback?.Invoke(initialPercent);
+
+            using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                fileStream.Seek(startByte, SeekOrigin.Begin);
+                long bytesUploaded = startByte;
+                byte[] buffer = new byte[ChunkSize];
+
+                while (bytesUploaded < totalBytes)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    // Calculate chunk size (may be less than ChunkSize for last chunk)
+                    long remainingBytes = totalBytes - bytesUploaded;
+                    int currentChunkSize = (int)Math.Min(ChunkSize, remainingBytes);
+
+                    // Read chunk into buffer
+                    int bytesRead = await ReadExactAsync(fileStream, buffer, currentChunkSize, cancellationToken);
+                    if (bytesRead == 0) break;
+
+                    // Upload chunk
+                    await UploadChunkAsync(
+                        session.SessionUri, 
+                        buffer, 
+                        bytesRead, 
+                        bytesUploaded, 
+                        totalBytes,
+                        cancellationToken);
+
+                    bytesUploaded += bytesRead;
+                    session.BytesUploaded = bytesUploaded;
+
+                    // Report progress
+                    int percent = (int)((bytesUploaded * 100) / totalBytes);
+                    progressCallback?.Invoke(percent);
+
+                    // Save session state for resume capability
+                    saveSessionCallback?.Invoke(session);
+                }
+            }
+
+            progressCallback?.Invoke(100);
+        }
+
+        private async Task<int> ReadExactAsync(FileStream stream, byte[] buffer, int count, CancellationToken cancellationToken)
+        {
+            int totalRead = 0;
+            while (totalRead < count)
+            {
+                int read = await stream.ReadAsync(buffer, totalRead, count - totalRead, cancellationToken);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            return totalRead;
+        }
+
+        private async Task UploadChunkAsync(
+            string sessionUri, 
+            byte[] buffer, 
+            int bytesRead, 
+            long startByte, 
+            long totalBytes,
+            CancellationToken cancellationToken)
+        {
+            using (var client = new HttpClient())
+            {
+                client.Timeout = TimeSpan.FromMinutes(10);
+
+                long endByte = startByte + bytesRead - 1;
+                var contentRange = $"bytes {startByte}-{endByte}/{totalBytes}";
+
+                var request = new HttpRequestMessage(HttpMethod.Put, sessionUri);
+                request.Content = new ByteArrayContent(buffer, 0, bytesRead);
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+                request.Content.Headers.ContentLength = bytesRead;
+                request.Content.Headers.Add("Content-Range", contentRange);
+
+                var response = await client.SendAsync(request, cancellationToken);
+
+                // 200 or 201 = complete, 308 = incomplete but chunk accepted
+                if (response.StatusCode != System.Net.HttpStatusCode.OK &&
+                    response.StatusCode != System.Net.HttpStatusCode.Created &&
+                    (int)response.StatusCode != 308)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    throw new HttpRequestException($"Chunk upload failed: {response.StatusCode} - {errorContent}");
+                }
             }
         }
 

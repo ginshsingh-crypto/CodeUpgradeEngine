@@ -310,6 +310,7 @@ namespace LOD400Uploader.Views
     public static class BackgroundUploader
     {
         private static bool _isUploading = false;
+        private const long RESUMABLE_THRESHOLD = 50 * 1024 * 1024; // 50 MB - use resumable uploads for files larger than this
 
         public static void StartUpload(ApiService apiService, PackagingService packagingService, 
             string orderId, string packagePath, int sheetCount)
@@ -328,26 +329,18 @@ namespace LOD400Uploader.Views
                 try
                 {
                     string fileName = System.IO.Path.GetFileName(packagePath);
-                    string uploadUrl = await apiService.GetUploadUrlAsync(orderId, fileName);
-
                     long fileSize = packagingService.GetFileSize(packagePath);
 
-                    // Stream file directly from disk (no memory allocation for large files)
-                    await apiService.UploadFileAsync(uploadUrl, packagePath, (progress) => { });
-
-                    await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, uploadUrl);
-
-                    packagingService.Cleanup(packagePath);
-
-                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    if (fileSize > RESUMABLE_THRESHOLD)
                     {
-                        MessageBox.Show(
-                            $"Upload complete!\n\nOrder: {orderId}\nSheets: {sheetCount}\n\n" +
-                            "You will be notified when your LOD 400 model is ready.",
-                            "Success",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Information);
-                    });
+                        // Use resumable upload for large files
+                        await UploadResumableAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount);
+                    }
+                    else
+                    {
+                        // Use simple upload for smaller files
+                        await UploadSimpleAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -366,6 +359,115 @@ namespace LOD400Uploader.Views
                 {
                     _isUploading = false;
                 }
+            });
+        }
+
+        private static async Task UploadSimpleAsync(ApiService apiService, PackagingService packagingService,
+            string orderId, string packagePath, string fileName, long fileSize, int sheetCount)
+        {
+            string uploadUrl = await apiService.GetUploadUrlAsync(orderId, fileName);
+
+            await apiService.UploadFileAsync(uploadUrl, packagePath, (progress) => { });
+
+            await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, uploadUrl);
+
+            packagingService.Cleanup(packagePath);
+
+            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                MessageBox.Show(
+                    $"Upload complete!\n\nOrder: {orderId}\nSheets: {sheetCount}\n\n" +
+                    "You will be notified when your LOD 400 model is ready.",
+                    "Success",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            });
+        }
+
+        private static async Task UploadResumableAsync(ApiService apiService, PackagingService packagingService,
+            string orderId, string packagePath, string fileName, long fileSize, int sheetCount)
+        {
+            var sessionManager = new UploadSessionManager();
+            sessionManager.CleanupExpiredSessions();
+
+            // Check for existing session to resume
+            var existingSession = sessionManager.GetExistingSession(orderId, packagePath, fileSize);
+            ResumableUploadSession session;
+
+            if (existingSession != null)
+            {
+                // Check if the session is still valid on GCS
+                var status = await apiService.CheckResumableUploadStatusAsync(existingSession.SessionUri);
+                if (status.IsComplete)
+                {
+                    // Already complete, just mark it done
+                    await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, existingSession.StorageKey);
+                    sessionManager.RemoveSession(existingSession);
+                    packagingService.Cleanup(packagePath);
+
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            $"Upload complete!\n\nOrder: {orderId}\nSheets: {sheetCount}\n\n" +
+                            "You will be notified when your LOD 400 model is ready.",
+                            "Success",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
+                    return;
+                }
+                else if (status.BytesUploaded >= 0)
+                {
+                    // Resume from where we left off
+                    session = existingSession;
+                    session.BytesUploaded = status.BytesUploaded;
+                    sessionManager.SaveSession(session);
+
+                    double resumePercent = (double)status.BytesUploaded / fileSize * 100;
+                    Debug.WriteLine($"Resuming upload from {resumePercent:F1}% ({status.BytesUploaded} bytes)");
+                }
+                else
+                {
+                    // Session expired, create new one
+                    session = await apiService.InitiateResumableUploadAsync(orderId, fileName, fileSize);
+                    session.FilePath = packagePath;
+                    sessionManager.SaveSession(session);
+                }
+            }
+            else
+            {
+                // Create new resumable upload session
+                session = await apiService.InitiateResumableUploadAsync(orderId, fileName, fileSize);
+                session.FilePath = packagePath;
+                sessionManager.SaveSession(session);
+            }
+
+            // Perform the chunked upload with progress tracking
+            await apiService.UploadFileResumableAsync(
+                session,
+                packagePath,
+                (progress) => { /* Progress callback - can be used for UI updates */ },
+                (updatedSession) => 
+                {
+                    // Save session state after each chunk for resume capability
+                    sessionManager.SaveSession(updatedSession);
+                });
+
+            // Mark upload complete
+            await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, session.StorageKey);
+
+            // Cleanup
+            sessionManager.RemoveSession(session);
+            packagingService.Cleanup(packagePath);
+
+            System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+            {
+                MessageBox.Show(
+                    $"Upload complete!\n\nOrder: {orderId}\nSheets: {sheetCount}\n\n" +
+                    "You will be notified when your LOD 400 model is ready.",
+                    "Success",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             });
         }
     }

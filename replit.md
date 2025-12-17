@@ -165,7 +165,16 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
-**December 17, 2025 (V2 Enhancements)**:
+**December 17, 2025 (V2 Enhancements - Resumable Uploads)**:
+- Added GCS resumable upload support for large files (>50MB) with chunked transfer
+- Server-side: `initiateResumableUpload()` and `checkResumableUploadStatus()` methods in ObjectStorageService
+- New API endpoints: `POST /api/addin/orders/:orderId/resumable-upload` and `POST /api/addin/resumable-upload-status`
+- Revit add-in: `UploadFileResumableAsync()` with 8MB chunk size and progress tracking
+- `UploadSessionManager` class persists upload sessions to disk for resume capability after Revit restart
+- Sessions expire after 7 days (GCS limit); expired sessions automatically cleaned up
+- BackgroundUploader automatically chooses resumable vs simple upload based on file size
+
+**December 17, 2025 (V2 Enhancements - Sheet Metadata)**:
 - Added `orderSheets` table to store individual sheet metadata (sheetElementId, sheetNumber, sheetName) per order for dispute resolution and audit trail
 - Updated API endpoints (web and Revit add-in) to accept and persist sheets array with order creation
 - Frontend OrderDetailModal now displays scrollable list of selected sheets with number and name

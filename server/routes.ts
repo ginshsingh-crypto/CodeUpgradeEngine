@@ -495,7 +495,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      const { sheetCount } = parsed.data;
+      const { sheetCount, sheets } = parsed.data;
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
       const order = await storage.createOrder({
@@ -504,6 +504,11 @@ export async function registerRoutes(
         totalPriceSar,
         status: "pending",
       });
+
+      // Store individual sheet details for dispute resolution
+      if (sheets && sheets.length > 0) {
+        await storage.createOrderSheets(order.id, sheets);
+      }
 
       res.status(201).json(order);
     } catch (error) {
@@ -879,7 +884,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      const { sheetCount } = parsed.data;
+      const { sheetCount, sheets } = parsed.data;
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
       const order = await storage.createOrder({
@@ -888,6 +893,11 @@ export async function registerRoutes(
         totalPriceSar,
         status: "pending",
       });
+
+      // Store individual sheet details for dispute resolution
+      if (sheets && sheets.length > 0) {
+        await storage.createOrderSheets(order.id, sheets);
+      }
 
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {

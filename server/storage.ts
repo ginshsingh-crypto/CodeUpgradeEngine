@@ -2,6 +2,7 @@ import {
   users,
   orders,
   files,
+  orderSheets,
   apiKeys,
   addinSessions,
   passwordResetTokens,
@@ -15,6 +16,8 @@ import {
   type ApiKey,
   type InsertApiKey,
   type AddinSession,
+  type OrderSheet,
+  type SheetInfo,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, lt } from "drizzle-orm";
@@ -41,6 +44,10 @@ export interface IStorage {
   createFile(file: InsertFile): Promise<FileRecord>;
   getFile(id: string): Promise<FileRecord | undefined>;
   getFilesByOrderId(orderId: string): Promise<FileRecord[]>;
+  
+  // Order sheet operations
+  createOrderSheets(orderId: string, sheets: SheetInfo[]): Promise<OrderSheet[]>;
+  getOrderSheets(orderId: string): Promise<OrderSheet[]>;
   
   // API Key operations
   createApiKey(userId: string, name: string): Promise<{ apiKey: ApiKey; rawKey: string }>;
@@ -134,11 +141,13 @@ export class DatabaseStorage implements IStorage {
     if (!order) return undefined;
 
     const orderFiles = await this.getFilesByOrderId(id);
+    const sheets = await this.getOrderSheets(id);
     const user = await this.getUser(order.userId);
 
     return {
       ...order,
       files: orderFiles,
+      sheets: sheets,
       user: user ? {
         id: user.id,
         email: user.email,
@@ -159,9 +168,11 @@ export class DatabaseStorage implements IStorage {
     const ordersWithFiles: OrderWithFiles[] = [];
     for (const order of userOrders) {
       const orderFiles = await this.getFilesByOrderId(order.id);
+      const sheets = await this.getOrderSheets(order.id);
       ordersWithFiles.push({
         ...order,
         files: orderFiles,
+        sheets: sheets,
       });
     }
 
@@ -177,10 +188,12 @@ export class DatabaseStorage implements IStorage {
     const ordersWithFiles: OrderWithFiles[] = [];
     for (const order of allOrders) {
       const orderFiles = await this.getFilesByOrderId(order.id);
+      const sheets = await this.getOrderSheets(order.id);
       const user = await this.getUser(order.userId);
       ordersWithFiles.push({
         ...order,
         files: orderFiles,
+        sheets: sheets,
         user: user ? {
           id: user.id,
           email: user.email,
@@ -236,6 +249,25 @@ export class DatabaseStorage implements IStorage {
 
   async getFilesByOrderId(orderId: string): Promise<FileRecord[]> {
     return await db.select().from(files).where(eq(files.orderId, orderId));
+  }
+
+  // Order sheet operations
+  async createOrderSheets(orderId: string, sheets: SheetInfo[]): Promise<OrderSheet[]> {
+    if (sheets.length === 0) return [];
+    
+    const values = sheets.map(sheet => ({
+      orderId,
+      sheetElementId: sheet.sheetElementId,
+      sheetNumber: sheet.sheetNumber,
+      sheetName: sheet.sheetName,
+    }));
+    
+    const created = await db.insert(orderSheets).values(values).returning();
+    return created;
+  }
+
+  async getOrderSheets(orderId: string): Promise<OrderSheet[]> {
+    return await db.select().from(orderSheets).where(eq(orderSheets.orderId, orderId));
   }
 
   // API Key operations

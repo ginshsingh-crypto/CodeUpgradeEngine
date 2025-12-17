@@ -80,6 +80,16 @@ export const files = pgTable("files", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Order sheets table - stores individual sheet details for dispute resolution
+export const orderSheets = pgTable("order_sheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  sheetElementId: varchar("sheet_element_id").notNull(),
+  sheetNumber: varchar("sheet_number").notNull(),
+  sheetName: varchar("sheet_name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // API Keys table for Revit add-in authentication
 export const apiKeys = pgTable("api_keys", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -146,11 +156,19 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     references: [users.id],
   }),
   files: many(files),
+  sheets: many(orderSheets),
 }));
 
 export const filesRelations = relations(files, ({ one }) => ({
   order: one(orders, {
     fields: [files.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const orderSheetsRelations = relations(orderSheets, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderSheets.orderId],
     references: [orders.id],
   }),
 }));
@@ -193,6 +211,11 @@ export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTo
   usedAt: true,
 });
 
+export const insertOrderSheetSchema = createInsertSchema(orderSheets).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -204,10 +227,22 @@ export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type InsertAddinSession = z.infer<typeof insertAddinSessionSchema>;
 export type AddinSession = typeof addinSessions.$inferSelect;
+export type InsertOrderSheet = z.infer<typeof insertOrderSheetSchema>;
+export type OrderSheet = typeof orderSheets.$inferSelect;
+
+// Sheet info schema for API requests
+export const sheetInfoSchema = z.object({
+  sheetElementId: z.string(),
+  sheetNumber: z.string(),
+  sheetName: z.string(),
+});
+
+export type SheetInfo = z.infer<typeof sheetInfoSchema>;
 
 // API request/response types
 export const createOrderRequestSchema = z.object({
   sheetCount: z.number().min(1).max(1000),
+  sheets: z.array(sheetInfoSchema).optional(),
 });
 
 export type CreateOrderRequest = z.infer<typeof createOrderRequestSchema>;
@@ -241,6 +276,14 @@ export const orderWithFilesSchema = z.object({
     fileSize: z.number().nullable(),
     storageKey: z.string(),
     mimeType: z.string().nullable(),
+    createdAt: z.date().nullable(),
+  })).optional(),
+  sheets: z.array(z.object({
+    id: z.string(),
+    orderId: z.string(),
+    sheetElementId: z.string(),
+    sheetNumber: z.string(),
+    sheetName: z.string(),
     createdAt: z.date().nullable(),
   })).optional(),
 });

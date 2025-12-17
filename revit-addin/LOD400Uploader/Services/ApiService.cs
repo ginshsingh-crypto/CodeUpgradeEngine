@@ -128,10 +128,10 @@ namespace LOD400Uploader.Services
             }
         }
 
-        public async Task<CreateOrderResponse> CreateOrderAsync(int sheetCount)
+        public async Task<CreateOrderResponse> CreateOrderAsync(int sheetCount, List<SheetInfo> sheets = null)
         {
             EnsureSession();
-            var request = new CreateOrderRequest { SheetCount = sheetCount };
+            var request = new CreateOrderRequest { SheetCount = sheetCount, Sheets = sheets ?? new List<SheetInfo>() };
             var json = JsonConvert.SerializeObject(request);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 

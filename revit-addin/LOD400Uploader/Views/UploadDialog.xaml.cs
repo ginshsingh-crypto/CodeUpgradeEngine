@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Autodesk.Revit.DB;
+using LOD400Uploader.Models;
 using LOD400Uploader.Services;
 
 namespace LOD400Uploader.Views
@@ -166,10 +167,50 @@ namespace LOD400Uploader.Views
 
             try
             {
+                // Memory warning before packaging large models
+                long availableSystemMemoryMB = 4096; // Default assumption if we can't get system info
+                try
+                {
+                    var computerInfo = new Microsoft.VisualBasic.Devices.ComputerInfo();
+                    availableSystemMemoryMB = (long)(computerInfo.AvailablePhysicalMemory / (1024 * 1024));
+                }
+                catch { /* Fall back to 4GB assumption - ComputerInfo may not be available in all environments */ }
+
+                if (availableSystemMemoryMB < 2048)
+                {
+                    var result = MessageBox.Show(
+                        $"Low system memory detected ({availableSystemMemoryMB} MB available).\n\n" +
+                        "Packaging large workshared models may cause Revit to become unresponsive or crash.\n\n" +
+                        "Recommendations:\n" +
+                        "• Close other applications\n" +
+                        "• Save your work before continuing\n" +
+                        "• Consider using a machine with more RAM\n\n" +
+                        "Do you want to continue anyway?",
+                        "Low Memory Warning",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+
+                    if (result != MessageBoxResult.Yes)
+                    {
+                        HideProgress();
+                        UploadButton.IsEnabled = true;
+                        CancelButton.IsEnabled = true;
+                        return;
+                    }
+                }
+
                 ProgressText.Text = "Creating order...";
                 ProgressBar.Value = 5;
 
-                var orderResponse = await _apiService.CreateOrderAsync(selectedSheets.Count);
+                // Convert selected sheets to SheetInfo for server storage
+                var sheetInfoList = selectedSheets.Select(s => new SheetInfo
+                {
+                    SheetElementId = s.ElementId.Value.ToString(),
+                    SheetNumber = s.SheetNumber,
+                    SheetName = s.SheetName
+                }).ToList();
+
+                var orderResponse = await _apiService.CreateOrderAsync(selectedSheets.Count, sheetInfoList);
                 var order = orderResponse.Order;
 
                 if (!string.IsNullOrEmpty(orderResponse.CheckoutUrl))

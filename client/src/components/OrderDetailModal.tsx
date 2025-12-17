@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderTimeline } from "@/components/OrderTimeline";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { Download, Upload, FileArchive, ExternalLink, Loader2 } from "lucide-react";
+import { Download, Upload, FileArchive, ExternalLink, Loader2, FileSpreadsheet } from "lucide-react";
 import type { OrderWithFiles } from "@shared/schema";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -164,6 +164,33 @@ export function OrderDetailModal({
               )}
             </CardContent>
           </Card>
+
+          {order.sheets && order.sheets.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Selected Sheets ({order.sheets.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {order.sheets.map((sheet, index) => (
+                    <div
+                      key={sheet.id}
+                      className="flex items-center gap-3 p-2 rounded-md bg-muted/50 text-sm"
+                      data-testid={`sheet-item-${index}`}
+                    >
+                      <span className="font-mono text-muted-foreground shrink-0 w-12">
+                        {sheet.sheetNumber}
+                      </span>
+                      <span className="truncate">{sheet.sheetName}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid md:grid-cols-2 gap-6">
             <Card>

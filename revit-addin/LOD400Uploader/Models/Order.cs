@@ -76,10 +76,25 @@ namespace LOD400Uploader.Models
         public DateTime? CreatedAt { get; set; }
     }
 
+    public class SheetInfo
+    {
+        [JsonProperty("sheetElementId")]
+        public string SheetElementId { get; set; }
+
+        [JsonProperty("sheetNumber")]
+        public string SheetNumber { get; set; }
+
+        [JsonProperty("sheetName")]
+        public string SheetName { get; set; }
+    }
+
     public class CreateOrderRequest
     {
         [JsonProperty("sheetCount")]
         public int SheetCount { get; set; }
+
+        [JsonProperty("sheets")]
+        public List<SheetInfo> Sheets { get; set; }
     }
 
     public class CreateOrderResponse

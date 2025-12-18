@@ -48,6 +48,23 @@ namespace LOD400Uploader.Services
                 throw new InvalidOperationException("The model must be saved to a file before uploading. Please save your Revit model first.");
             }
 
+            // Warn about unsaved changes (but allow continuing)
+            if (document.IsModified)
+            {
+                var result = System.Windows.MessageBox.Show(
+                    "Your model has unsaved changes.\n\n" +
+                    "Only the last saved version will be uploaded. Your unsaved changes will NOT be included.\n\n" +
+                    "Do you want to continue?",
+                    "Unsaved Changes",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Warning);
+
+                if (result != System.Windows.MessageBoxResult.Yes)
+                {
+                    throw new OperationCanceledException("Upload cancelled by user.");
+                }
+            }
+
             var data = new PackageData();
             data.TempDir = Path.Combine(Path.GetTempPath(), "LOD400Upload_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(data.TempDir);

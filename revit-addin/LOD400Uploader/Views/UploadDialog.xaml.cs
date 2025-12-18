@@ -168,26 +168,21 @@ namespace LOD400Uploader.Views
             try
             {
                 // Memory warning before packaging large models
-                long availableSystemMemoryMB = 4096; // Default assumption if we can't get system info
-                try
-                {
-                    // Use GC memory info as a proxy for available memory
-                    var gcInfo = GC.GetGCMemoryInfo();
-                    availableSystemMemoryMB = (long)(gcInfo.TotalAvailableMemoryBytes / (1024 * 1024));
-                }
-                catch { /* Fall back to 4GB assumption */ }
-
-                if (availableSystemMemoryMB < 2048)
+                // Check if GC heap is using a lot of memory (indicates system might be under pressure)
+                long gcMemoryMB = GC.GetTotalMemory(false) / (1024 * 1024);
+                
+                // If managed heap is already using over 1GB, warn the user
+                if (gcMemoryMB > 1024)
                 {
                     var result = MessageBox.Show(
-                        $"Low system memory detected ({availableSystemMemoryMB} MB available).\n\n" +
+                        $"High memory usage detected (Revit is using {gcMemoryMB} MB).\n\n" +
                         "Packaging large workshared models may cause Revit to become unresponsive or crash.\n\n" +
                         "Recommendations:\n" +
                         "• Close other applications\n" +
                         "• Save your work before continuing\n" +
-                        "• Consider using a machine with more RAM\n\n" +
+                        "• Consider restarting Revit to free memory\n\n" +
                         "Do you want to continue anyway?",
-                        "Low Memory Warning",
+                        "High Memory Usage Warning",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Warning);
 

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,6 +20,30 @@ namespace LOD400Uploader.Views
         private readonly ObservableCollection<SheetItem> _sheets;
         private readonly ApiService _apiService;
         private readonly PackagingService _packagingService;
+
+        // P/Invoke for getting system memory info (works on .NET Framework 4.8)
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private class MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+
+            public MEMORYSTATUSEX()
+            {
+                this.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            }
+        }
+
+        [return: MarshalAs(UnmanagedType.Bool)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
 
         public UploadDialog(Document document) : this(document, null) { }
 
@@ -167,22 +192,30 @@ namespace LOD400Uploader.Views
 
             try
             {
-                // Memory warning before packaging large models
-                // Check if GC heap is using a lot of memory (indicates system might be under pressure)
-                long gcMemoryMB = GC.GetTotalMemory(false) / (1024 * 1024);
-                
-                // If managed heap is already using over 1GB, warn the user
-                if (gcMemoryMB > 1024)
+                // Memory warning before packaging large models (P/Invoke GlobalMemoryStatusEx)
+                ulong availableSystemMemoryMB = 4096; // Fail-safe default
+                try
+                {
+                    MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
+                    if (GlobalMemoryStatusEx(memStatus))
+                    {
+                        availableSystemMemoryMB = memStatus.ullAvailPhys / (1024 * 1024);
+                    }
+                }
+                catch { }
+
+                // Warn if less than 2GB free
+                if (availableSystemMemoryMB < 2048)
                 {
                     var result = MessageBox.Show(
-                        $"High memory usage detected (Revit is using {gcMemoryMB} MB).\n\n" +
+                        $"Low system memory detected ({availableSystemMemoryMB} MB available).\n\n" +
                         "Packaging large workshared models may cause Revit to become unresponsive or crash.\n\n" +
                         "Recommendations:\n" +
                         "• Close other applications\n" +
                         "• Save your work before continuing\n" +
-                        "• Consider restarting Revit to free memory\n\n" +
+                        "• Consider using a machine with more RAM\n\n" +
                         "Do you want to continue anyway?",
-                        "High Memory Usage Warning",
+                        "Low Memory Warning",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Warning);
 

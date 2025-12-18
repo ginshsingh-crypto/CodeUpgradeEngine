@@ -393,6 +393,15 @@ namespace LOD400Uploader.Services
             return totalRead;
         }
 
+        // Reusable HttpClient for chunk uploads to avoid socket exhaustion
+        private static readonly HttpClient _chunkUploadClient;
+
+        static ApiService()
+        {
+            _chunkUploadClient = new HttpClient();
+            _chunkUploadClient.Timeout = TimeSpan.FromMinutes(10);
+        }
+
         private async Task UploadChunkAsync(
             string sessionUri, 
             byte[] buffer, 
@@ -401,29 +410,26 @@ namespace LOD400Uploader.Services
             long totalBytes,
             CancellationToken cancellationToken)
         {
-            using (var client = new HttpClient())
+            // Reuse static HttpClient to prevent socket exhaustion
+            // Creating new HttpClient for each chunk can exhaust available ports
+            long endByte = startByte + bytesRead - 1;
+            var contentRange = $"bytes {startByte}-{endByte}/{totalBytes}";
+
+            var request = new HttpRequestMessage(HttpMethod.Put, sessionUri);
+            request.Content = new ByteArrayContent(buffer, 0, bytesRead);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+            request.Content.Headers.ContentLength = bytesRead;
+            request.Content.Headers.Add("Content-Range", contentRange);
+
+            var response = await _chunkUploadClient.SendAsync(request, cancellationToken);
+
+            // 200 or 201 = complete, 308 = incomplete but chunk accepted
+            if (response.StatusCode != System.Net.HttpStatusCode.OK &&
+                response.StatusCode != System.Net.HttpStatusCode.Created &&
+                (int)response.StatusCode != 308)
             {
-                client.Timeout = TimeSpan.FromMinutes(10);
-
-                long endByte = startByte + bytesRead - 1;
-                var contentRange = $"bytes {startByte}-{endByte}/{totalBytes}";
-
-                var request = new HttpRequestMessage(HttpMethod.Put, sessionUri);
-                request.Content = new ByteArrayContent(buffer, 0, bytesRead);
-                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-                request.Content.Headers.ContentLength = bytesRead;
-                request.Content.Headers.Add("Content-Range", contentRange);
-
-                var response = await client.SendAsync(request, cancellationToken);
-
-                // 200 or 201 = complete, 308 = incomplete but chunk accepted
-                if (response.StatusCode != System.Net.HttpStatusCode.OK &&
-                    response.StatusCode != System.Net.HttpStatusCode.Created &&
-                    (int)response.StatusCode != 308)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    throw new HttpRequestException($"Chunk upload failed: {response.StatusCode} - {errorContent}");
-                }
+                var errorContent = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Chunk upload failed: {response.StatusCode} - {errorContent}");
             }
         }
 

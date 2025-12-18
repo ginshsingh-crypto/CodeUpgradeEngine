@@ -45,12 +45,7 @@ namespace LOD400Uploader.Services
             string originalPath = document.PathName;
             if (string.IsNullOrEmpty(originalPath) || !File.Exists(originalPath))
             {
-                throw new InvalidOperationException("Please save your Revit model before uploading.");
-            }
-
-            if (document.IsModified)
-            {
-                throw new InvalidOperationException("Please save your changes before uploading. The model has unsaved modifications.");
+                throw new InvalidOperationException("The model must be saved to a file before uploading. Please save your Revit model first.");
             }
 
             var data = new PackageData();

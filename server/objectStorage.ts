@@ -217,6 +217,32 @@ export class ObjectStorageService {
     return file;
   }
 
+  /**
+   * Verifies that a file exists in GCS and returns its metadata.
+   * Used to prevent "fake upload" attacks where client claims upload complete without data.
+   */
+  async verifyFileExists(storageKey: string): Promise<{ exists: boolean; size?: number }> {
+    try {
+      const { bucketName, objectName } = this.parseObjectPath(storageKey);
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      const [exists] = await file.exists();
+      
+      if (!exists) {
+        return { exists: false };
+      }
+
+      const [metadata] = await file.getMetadata();
+      return { 
+        exists: true, 
+        size: metadata.size ? parseInt(String(metadata.size), 10) : undefined 
+      };
+    } catch (error) {
+      console.error("Error verifying file exists:", error);
+      return { exists: false };
+    }
+  }
+
   normalizeStorageKey(uploadURL: string): string {
     if (!uploadURL.startsWith("https://storage.googleapis.com/")) {
       return uploadURL;

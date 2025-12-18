@@ -496,6 +496,15 @@ export async function registerRoutes(
       }
 
       const { sheetCount, sheets } = parsed.data;
+
+      // Security validation: sheet count must match actual sheets array
+      // Prevents pricing exploit where client sends low sheetCount with many sheets
+      if (sheets && sheets.length > 0 && sheets.length !== sheetCount) {
+        return res.status(400).json({ 
+          message: `Sheet count mismatch: claimed ${sheetCount} but provided ${sheets.length} sheets` 
+        });
+      }
+
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
       const order = await storage.createOrder({
@@ -641,11 +650,24 @@ export async function registerRoutes(
 
       const storageKey = objectStorage.normalizeStorageKey(uploadURL);
 
+      // Security check: Verify file actually exists in GCS before recording
+      // Prevents "fake upload" attacks where client claims upload without data
+      const verification = await objectStorage.verifyFileExists(storageKey);
+      if (!verification.exists) {
+        console.warn(`Upload verification failed for order ${orderId}: file not found at ${storageKey}`);
+        return res.status(400).json({ 
+          message: "Upload verification failed: file not found in storage. Please try uploading again." 
+        });
+      }
+
+      // Use verified size if client didn't provide one
+      const verifiedSize = verification.size || fileSize || null;
+
       await storage.createFile({
         orderId,
         fileType: "input",
         fileName,
-        fileSize: fileSize || null,
+        fileSize: verifiedSize,
         storageKey,
         mimeType: "application/zip",
       });
@@ -800,11 +822,23 @@ export async function registerRoutes(
 
       const storageKey = objectStorage.normalizeStorageKey(uploadURL);
 
+      // Security check: Verify file actually exists in GCS before recording
+      const verification = await objectStorage.verifyFileExists(storageKey);
+      if (!verification.exists) {
+        console.warn(`Admin upload verification failed for order ${orderId}: file not found at ${storageKey}`);
+        return res.status(400).json({ 
+          message: "Upload verification failed: file not found in storage. Please try uploading again." 
+        });
+      }
+
+      // Use verified size if not provided
+      const verifiedSize = verification.size || fileSize || null;
+
       await storage.createFile({
         orderId,
         fileType: "output",
         fileName,
-        fileSize: fileSize || null,
+        fileSize: verifiedSize,
         storageKey,
         mimeType: "application/zip",
       });
@@ -885,6 +919,15 @@ export async function registerRoutes(
       }
 
       const { sheetCount, sheets } = parsed.data;
+
+      // Security validation: sheet count must match actual sheets array
+      // Prevents pricing exploit where client sends low sheetCount with many sheets
+      if (sheets && sheets.length > 0 && sheets.length !== sheetCount) {
+        return res.status(400).json({ 
+          message: `Sheet count mismatch: claimed ${sheetCount} but provided ${sheets.length} sheets` 
+        });
+      }
+
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
       const order = await storage.createOrder({
@@ -1091,11 +1134,24 @@ export async function registerRoutes(
 
       const storageKey = objectStorage.normalizeStorageKey(uploadURL);
 
+      // Security check: Verify file actually exists in GCS before recording
+      // Prevents "fake upload" attacks where client claims upload without data
+      const verification = await objectStorage.verifyFileExists(storageKey);
+      if (!verification.exists) {
+        console.warn(`Upload verification failed for order ${orderId}: file not found at ${storageKey}`);
+        return res.status(400).json({ 
+          message: "Upload verification failed: file not found in storage. Please try uploading again." 
+        });
+      }
+
+      // Use verified size if client didn't provide one
+      const verifiedSize = verification.size || fileSize || null;
+
       await storage.createFile({
         orderId,
         fileType: "input",
         fileName,
-        fileSize: fileSize || null,
+        fileSize: verifiedSize,
         storageKey,
         mimeType: "application/zip",
       });

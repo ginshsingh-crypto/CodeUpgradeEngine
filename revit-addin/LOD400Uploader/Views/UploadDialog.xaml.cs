@@ -171,10 +171,11 @@ namespace LOD400Uploader.Views
                 long availableSystemMemoryMB = 4096; // Default assumption if we can't get system info
                 try
                 {
-                    var computerInfo = new Microsoft.VisualBasic.Devices.ComputerInfo();
-                    availableSystemMemoryMB = (long)(computerInfo.AvailablePhysicalMemory / (1024 * 1024));
+                    // Use GC memory info as a proxy for available memory
+                    var gcInfo = GC.GetGCMemoryInfo();
+                    availableSystemMemoryMB = (long)(gcInfo.TotalAvailableMemoryBytes / (1024 * 1024));
                 }
-                catch { /* Fall back to 4GB assumption - ComputerInfo may not be available in all environments */ }
+                catch { /* Fall back to 4GB assumption */ }
 
                 if (availableSystemMemoryMB < 2048)
                 {

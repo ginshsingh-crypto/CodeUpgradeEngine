@@ -316,7 +316,8 @@ namespace LOD400Uploader.Services
             try
             {
                 // Read transmission data from the saved model copy
-                TransmissionData transData = TransmissionData.ReadTransmissionData(modelCopyPath);
+                ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelCopyPath);
+                TransmissionData transData = TransmissionData.ReadTransmissionData(modelPath);
                 if (transData == null) return;
 
                 bool isModified = false;
@@ -357,7 +358,7 @@ namespace LOD400Uploader.Services
                 {
                     // Mark as transmitted - tells Revit to check relative paths first
                     transData.IsTransmitted = true;
-                    TransmissionData.WriteTransmissionData(modelCopyPath, transData);
+                    TransmissionData.WriteTransmissionData(modelPath, transData);
                 }
             }
             catch

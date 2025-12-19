@@ -35,6 +35,7 @@ namespace LOD400Uploader.Services
         public string DestFileName { get; set; }
         public string Name { get; set; }
         public string Type { get; set; }
+        public bool IsCloud { get; set; }
     }
 
     public class PackagingService
@@ -252,7 +253,9 @@ namespace LOD400Uploader.Services
                     manifest["links"] = linksSection;
                 }
                 
-                // Add copy results without overwriting existing toInclude/skipped arrays
+                // Add copy results without overwriting existing toInclude/cloudHosted arrays
+                // Note: Cloud links are already in links.cloudHosted from CreateManifestJson
+                // copyResults only contains local link copy outcomes (success/failure)
                 linksSection["copyResults"] = Newtonsoft.Json.Linq.JToken.FromObject(new
                 {
                     included = linkResults.IncludedLinks.Select(l => new
@@ -268,7 +271,8 @@ namespace LOD400Uploader.Services
                         type = l.Type,
                         originalPath = l.OriginalPath,
                         error = l.Error
-                    })
+                    }),
+                    cloudSkipped = linkResults.CloudLinks.Count
                 });
                 
                 return manifest.ToString(Newtonsoft.Json.Formatting.Indented);
@@ -390,16 +394,40 @@ namespace LOD400Uploader.Services
                         {
                             string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetPath());
                             
+                            if (string.IsNullOrEmpty(linkPath)) continue;
+                            
+                            // Check if this is a cloud-hosted link (BIM 360, ACC, etc.)
+                            // Cloud links cannot be copied with File.Copy but we record them in the manifest
+                            if (IsCloudPath(linkPath))
+                            {
+                                // Skip heavyweight files even for cloud
+                                string cloudFileName = linkPath.Split('/').LastOrDefault() ?? linkPath;
+                                if (IsHeavyweightFile(cloudFileName))
+                                {
+                                    continue;
+                                }
+
+                                links.Add(new LinkToCopy
+                                {
+                                    SourcePath = linkPath,
+                                    DestFileName = cloudFileName,
+                                    Name = linkType.Name,
+                                    Type = "RevitLink",
+                                    IsCloud = true
+                                });
+                                continue;
+                            }
+                            
                             // CRITICAL FIX: Resolve relative paths before checking existence
                             // Without this, File.Exists("..\Structure.rvt") checks relative to Revit.exe folder
                             // instead of the project folder, causing links to be silently skipped
-                            if (!string.IsNullOrEmpty(linkPath) && !Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
                             {
                                 string hostFolder = Path.GetDirectoryName(document.PathName);
                                 linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
                             }
                             
-                            if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
+                            if (File.Exists(linkPath))
                             {
                                 // Skip heavyweight files (point clouds, coordination models)
                                 if (IsHeavyweightFile(linkPath))
@@ -412,7 +440,8 @@ namespace LOD400Uploader.Services
                                     SourcePath = linkPath,
                                     DestFileName = Path.GetFileName(linkPath),
                                     Name = linkType.Name,
-                                    Type = "RevitLink"
+                                    Type = "RevitLink",
+                                    IsCloud = false
                                 });
                             }
                         }
@@ -435,14 +464,36 @@ namespace LOD400Uploader.Services
                         {
                             string linkPath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetPath());
                             
+                            if (string.IsNullOrEmpty(linkPath)) continue;
+                            
+                            // Check if this is a cloud-hosted link
+                            if (IsCloudPath(linkPath))
+                            {
+                                string cloudFileName = linkPath.Split('/').LastOrDefault() ?? linkPath;
+                                if (IsHeavyweightFile(cloudFileName))
+                                {
+                                    continue;
+                                }
+
+                                links.Add(new LinkToCopy
+                                {
+                                    SourcePath = linkPath,
+                                    DestFileName = cloudFileName,
+                                    Name = cadLink.Name,
+                                    Type = "CADLink",
+                                    IsCloud = true
+                                });
+                                continue;
+                            }
+                            
                             // CRITICAL FIX: Resolve relative paths before checking existence
-                            if (!string.IsNullOrEmpty(linkPath) && !Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
                             {
                                 string hostFolder = Path.GetDirectoryName(document.PathName);
                                 linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
                             }
                             
-                            if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
+                            if (File.Exists(linkPath))
                             {
                                 // Skip heavyweight files
                                 if (IsHeavyweightFile(linkPath))
@@ -455,7 +506,8 @@ namespace LOD400Uploader.Services
                                     SourcePath = linkPath,
                                     DestFileName = Path.GetFileName(linkPath),
                                     Name = cadLink.Name,
-                                    Type = "CADLink"
+                                    Type = "CADLink",
+                                    IsCloud = false
                                 });
                             }
                         }
@@ -538,20 +590,44 @@ namespace LOD400Uploader.Services
                 return result;
             }
 
+            // Separate cloud and local links
+            var localLinks = links.Where(l => !l.IsCloud).ToList();
+            var cloudLinks = links.Where(l => l.IsCloud).ToList();
+            
+            // Record cloud links (they exist but can't be copied)
+            foreach (var cloudLink in cloudLinks)
+            {
+                result.CloudLinks.Add(new LinkedFileInfo
+                {
+                    Name = cloudLink.Name,
+                    Type = cloudLink.Type,
+                    OriginalPath = cloudLink.SourcePath,
+                    Status = "CloudHosted",
+                    IsCloud = true,
+                    Error = "Cloud-hosted files cannot be copied. Please download locally or ensure team has access."
+                });
+            }
+
+            if (localLinks.Count == 0)
+            {
+                return result;
+            }
+
             Directory.CreateDirectory(linksDir);
             int processed = 0;
 
-            foreach (var link in links)
+            foreach (var link in localLinks)
             {
                 processed++;
-                int progress = 10 + (processed * 40 / links.Count);
+                int progress = 10 + (processed * 40 / localLinks.Count);
                 progressCallback?.Invoke(progress, $"Copying link: {link.DestFileName}...");
 
                 var linkInfo = new LinkedFileInfo
                 {
                     Name = link.Name,
                     Type = link.Type,
-                    OriginalPath = link.SourcePath
+                    OriginalPath = link.SourcePath,
+                    IsCloud = false
                 };
 
                 try
@@ -618,6 +694,10 @@ namespace LOD400Uploader.Services
                 username = app?.Username ?? "Unknown"
             };
 
+            // Separate local and cloud links for manifest
+            var localLinks = links.Where(l => !l.IsCloud).ToList();
+            var cloudLinks = links.Where(l => l.IsCloud).ToList();
+
             var manifest = new
             {
                 projectName = document.Title ?? "Untitled",
@@ -630,12 +710,21 @@ namespace LOD400Uploader.Services
                 environment = environment,  // Detailed environment for version warnings
                 links = new
                 {
-                    toInclude = links.Select(l => new
+                    toInclude = localLinks.Select(l => new
                     {
                         name = l.Name,
                         type = l.Type,
                         fileName = l.DestFileName,
                         originalPath = l.SourcePath
+                    }),
+                    // Cloud-hosted links that exist but cannot be copied
+                    // Team should download these separately or ensure cloud access
+                    cloudHosted = cloudLinks.Select(l => new
+                    {
+                        name = l.Name,
+                        type = l.Type,
+                        cloudPath = l.SourcePath,
+                        note = "Cloud-hosted file - requires BIM 360/ACC access or local download"
                     })
                 }
             };
@@ -734,6 +823,7 @@ namespace LOD400Uploader.Services
     {
         public List<LinkedFileInfo> IncludedLinks { get; set; } = new List<LinkedFileInfo>();
         public List<LinkedFileInfo> MissingLinks { get; set; } = new List<LinkedFileInfo>();
+        public List<LinkedFileInfo> CloudLinks { get; set; } = new List<LinkedFileInfo>();
         public string CollectionError { get; set; }
     }
 
@@ -746,5 +836,6 @@ namespace LOD400Uploader.Services
         public string Status { get; set; }
         public string Error { get; set; }
         public long FileSize { get; set; }
+        public bool IsCloud { get; set; }
     }
 }

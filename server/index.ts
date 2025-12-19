@@ -9,7 +9,7 @@ import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq, ne } from "drizzle-orm";
 
-const SUPER_ADMIN_EMAIL = "ginshsingh@gmail.com";
+const SUPER_ADMIN_EMAIL = process.env.ADMIN_EMAIL || "ginshsingh@gmail.com";
 
 async function ensureSuperAdmin() {
   try {

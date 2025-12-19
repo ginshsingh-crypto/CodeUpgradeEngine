@@ -182,6 +182,68 @@ export async function sendOrderPaidEmail(
   }
 }
 
+export async function sendContactFormEmail(
+  fromName: string,
+  fromEmail: string,
+  message: string
+): Promise<boolean> {
+  try {
+    const { client } = await getUncachableResendClient();
+    
+    const adminEmail = process.env.ADMIN_EMAIL || 'ginshsingh@gmail.com';
+    const verifiedFromEmail = 'LOD 400 Platform <noreply@deepnewbim.com>';
+    
+    const { data, error } = await client.emails.send({
+      from: verifiedFromEmail,
+      to: adminEmail,
+      replyTo: fromEmail,
+      subject: `Contact Form: New message from ${fromName}`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+          <div style="text-align: center; margin-bottom: 40px;">
+            <h1 style="color: #1a1a1a; font-size: 28px; margin: 0;">LOD 400 Platform</h1>
+          </div>
+          
+          <div style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 32px;">
+            <h2 style="color: #1a1a1a; font-size: 20px; margin: 0 0 16px;">New Contact Form Submission</h2>
+            
+            <div style="background: #f9f9f9; border-radius: 6px; padding: 16px; margin: 16px 0;">
+              <p style="color: #525252; font-size: 14px; margin: 0 0 8px;"><strong>From:</strong> ${fromName}</p>
+              <p style="color: #525252; font-size: 14px; margin: 0;"><strong>Email:</strong> ${fromEmail}</p>
+            </div>
+            
+            <h3 style="color: #1a1a1a; font-size: 16px; margin: 24px 0 12px;">Message:</h3>
+            <div style="background: #f9f9f9; border-radius: 6px; padding: 16px;">
+              <p style="color: #525252; font-size: 14px; line-height: 1.6; margin: 0; white-space: pre-wrap;">${message}</p>
+            </div>
+            
+            <p style="color: #737373; font-size: 12px; margin-top: 24px;">
+              You can reply directly to this email to respond to the inquiry.
+            </p>
+          </div>
+          
+          <div style="text-align: center; margin-top: 32px;">
+            <p style="color: #a3a3a3; font-size: 12px; margin: 0;">
+              LOD 400 Delivery Platform - Contact Form Notification
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Resend error:', error);
+      return false;
+    }
+
+    console.log(`Contact form email sent, id: ${data?.id}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending contact form email:', error);
+    return false;
+  }
+}
+
 export async function sendOrderCompleteEmail(
   toEmail: string,
   orderId: string,

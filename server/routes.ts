@@ -5,7 +5,7 @@ import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { createOrderRequestSchema, PRICE_PER_SHEET_SAR } from "@shared/schema";
 import { getUncachableStripeClient } from "./stripeClient";
-import { sendPasswordResetEmail, sendOrderPaidEmail, sendOrderCompleteEmail } from "./emailService";
+import { sendPasswordResetEmail, sendOrderPaidEmail, sendOrderCompleteEmail, sendContactFormEmail } from "./emailService";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { z } from "zod";
@@ -64,6 +64,44 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   await setupAuth(app);
+
+  // ============================================
+  // PUBLIC CONTACT FORM (NO AUTH REQUIRED)
+  // ============================================
+  const contactFormSchema = z.object({
+    name: z.string().min(1, "Name is required").max(100),
+    email: z.string().email("Invalid email address"),
+    message: z.string().min(10, "Message must be at least 10 characters").max(2000),
+  });
+
+  app.post("/api/contact", async (req, res) => {
+    try {
+      // Rate limiting for contact form: 3 submissions per IP per minute
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      const rateLimitKey = `contact:${ip}`;
+      if (!checkRateLimit(rateLimitKey, 3, 60000)) {
+        return res.status(429).json({ message: "Too many requests. Please try again later." });
+      }
+
+      const parsed = contactFormSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { name, email, message } = parsed.data;
+      
+      const success = await sendContactFormEmail(name, email, message);
+      
+      if (success) {
+        res.json({ success: true, message: "Message sent successfully" });
+      } else {
+        res.status(500).json({ message: "Failed to send message. Please try again." });
+      }
+    } catch (error) {
+      console.error("Contact form error:", error);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {

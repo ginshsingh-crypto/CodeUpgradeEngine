@@ -13,16 +13,21 @@
     <OutputType>Library</OutputType>
     <RootNamespace>LOD400Uploader</RootNamespace>
     <AssemblyName>LOD400Uploader</AssemblyName>
+    <!-- Build configuration for multi-version support -->
+    <!-- Revit 2022, 2023, 2024 all use .NET Framework 4.8 -->
+    <!-- Set REVIT_VERSION environment variable or property to build for specific version -->
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2024</RevitVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Revit API references - Update paths for your Revit version -->
+    <!-- Revit API references - Dynamically selected based on RevitVersion -->
+    <!-- Build with: dotnet build /p:RevitVersion=2022 (or 2023, 2024) -->
     <Reference Include="RevitAPI">
-      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\Revit $(RevitVersion)\RevitAPI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="RevitAPIUI">
-      <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPIUI.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\Revit $(RevitVersion)\RevitAPIUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

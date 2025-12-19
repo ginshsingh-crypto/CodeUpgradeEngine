@@ -287,15 +287,36 @@ namespace LOD400Uploader.Views
                 });
 
                 // Phase 2: File operations (run on background thread to prevent UI freeze)
-                // This copies linked files and creates the ZIP archive
-                packagePath = await Task.Run(() =>
+                // This copies linked files but does NOT call TransmissionData API
+                PackageResult packageResult = await Task.Run(() =>
                 {
-                    return _packagingService.CreatePackage(packageData, (progress, message) =>
+                    return _packagingService.CreatePackageWithoutRepathing(packageData, (progress, message) =>
                     {
                         Dispatcher.Invoke(() =>
                         {
                             ProgressText.Text = message;
-                            ProgressBar.Value = 40 + (progress * 0.25);
+                            ProgressBar.Value = 40 + (progress * 0.15);
+                        });
+                    });
+                });
+
+                // Phase 3: TransmissionData operations (MUST run on main thread)
+                // This uses Revit API for re-pathing links - calling from background thread would crash
+                _packagingService.RepathLinksOnMainThread(packageResult, (progress, message) =>
+                {
+                    ProgressText.Text = message;
+                    ProgressBar.Value = 55 + (progress * 0.05);
+                });
+
+                // Phase 4: Final ZIP creation (run on background thread)
+                packagePath = await Task.Run(() =>
+                {
+                    return _packagingService.FinalizePackage(packageData, (progress, message) =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            ProgressText.Text = message;
+                            ProgressBar.Value = 60 + (progress * 0.05);
                         });
                     });
                 });
@@ -317,10 +338,9 @@ namespace LOD400Uploader.Views
             }
             catch (Exception ex)
             {
-                if (!string.IsNullOrEmpty(packagePath))
-                {
-                    _packagingService.Cleanup(packagePath);
-                }
+                // Clean up all temporary resources (temp directory and zip file)
+                // This ensures no resources are left behind regardless of which phase failed
+                _packagingService.CleanupAll();
 
                 MessageBox.Show(
                     $"Error: {ex.Message}\n\nPlease try again.",

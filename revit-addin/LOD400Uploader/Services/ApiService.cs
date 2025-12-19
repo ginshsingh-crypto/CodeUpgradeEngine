@@ -116,10 +116,14 @@ namespace LOD400Uploader.Services
             {
                 // Uses static _authClient to prevent socket exhaustion
                 // Note: We create a fresh request with headers to avoid header conflicts
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/api/auth/validate");
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                var response = await _authClient.SendAsync(request);
-                return response.IsSuccessStatusCode;
+                using (var request = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/api/auth/validate"))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    using (var response = await _authClient.SendAsync(request))
+                    {
+                        return response.IsSuccessStatusCode;
+                    }
+                }
             }
             catch
             {

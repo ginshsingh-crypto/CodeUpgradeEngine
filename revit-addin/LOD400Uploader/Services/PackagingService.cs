@@ -19,6 +19,16 @@ namespace LOD400Uploader.Services
         public string OriginalFileName { get; set; }
     }
 
+    /// <summary>
+    /// Result from background packaging that needs main thread follow-up
+    /// </summary>
+    public class PackageResult
+    {
+        public string ZipPath { get; set; }
+        public LinkCollectionResult LinkResults { get; set; }
+        public string ModelCopyPath { get; set; }
+    }
+
     public class LinkToCopy
     {
         public string SourcePath { get; set; }
@@ -31,6 +41,7 @@ namespace LOD400Uploader.Services
     {
         private string _tempDir;
         private string _zipPath;
+        private bool _tempDirCleaned = false;
 
         /// <summary>
         /// Phase 1: Collect data using Revit API (MUST run on main thread)
@@ -94,42 +105,58 @@ namespace LOD400Uploader.Services
             data.TempDir = Path.Combine(Path.GetTempPath(), "LOD400Upload_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(data.TempDir);
             _tempDir = data.TempDir;
+            _tempDirCleaned = false; // Reset cleanup flag for new packaging operation
 
             string fileName = Path.GetFileName(originalPath);
             data.OriginalFileName = fileName;
             data.ModelCopyPath = Path.Combine(data.TempDir, fileName);
 
             bool isWorkshared = document.IsWorkshared;
+            bool isCloudModel = IsCloudPath(originalPath);
             
-            progressCallback?.Invoke(20, isWorkshared ? "Creating detached copy of workshared model..." : "Copying model file...");
+            string progressMessage = isWorkshared 
+                ? "Creating detached copy of workshared model..." 
+                : isCloudModel 
+                    ? "Downloading cloud model..." 
+                    : "Copying model file...";
+            progressCallback?.Invoke(20, progressMessage);
             
             // SAFE APPROACH: Copy file first, then open the copy in background
             // This prevents "Session Hijack" where SaveAs switches the user's active document
             
-            if (isWorkshared)
+            if (isWorkshared || isCloudModel)
             {
-                // For workshared models, we cannot File.Copy (file is locked by Revit server)
-                // Instead, open directly from original with DetachAndPreserveWorksets
+                // For workshared models: File is locked by Revit server, must use OpenDocumentFile
+                // For cloud models (BIM 360/ACC): File.Copy doesn't work on cloud paths
+                // Both cases: Open document in background and SaveAs to local temp folder
                 ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(originalPath);
                 OpenOptions openOptions = new OpenOptions();
-                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                
+                // Only set detach option for workshared models
+                if (isWorkshared)
+                {
+                    openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                }
                 
                 // Open the copy in background (this does NOT affect the user's active document)
                 Document backgroundDoc = document.Application.OpenDocumentFile(modelPath, openOptions);
                 
                 try
                 {
-                    progressCallback?.Invoke(30, "Saving detached copy...");
+                    progressCallback?.Invoke(30, "Saving local copy...");
                     
-                    // Save the detached copy to our temp folder
+                    // Save the copy to our temp folder
                     SaveAsOptions saveOptions = new SaveAsOptions();
                     saveOptions.OverwriteExistingFile = true;
                     saveOptions.MaximumBackups = 1;
                     
-                    // Important: Mark as non-workshared for the copy
-                    WorksharingSaveAsOptions wsOptions = new WorksharingSaveAsOptions();
-                    wsOptions.SaveAsCentral = false;
-                    saveOptions.SetWorksharingOptions(wsOptions);
+                    // For workshared models: Mark as non-workshared for the copy
+                    if (isWorkshared)
+                    {
+                        WorksharingSaveAsOptions wsOptions = new WorksharingSaveAsOptions();
+                        wsOptions.SaveAsCentral = false;
+                        saveOptions.SetWorksharingOptions(wsOptions);
+                    }
                     
                     backgroundDoc.SaveAs(data.ModelCopyPath, saveOptions);
                     
@@ -154,7 +181,7 @@ namespace LOD400Uploader.Services
             }
             else
             {
-                // For non-workshared models, simple File.Copy works fine
+                // For local non-workshared models, simple File.Copy works fine
                 File.Copy(originalPath, data.ModelCopyPath, true);
                 
                 progressCallback?.Invoke(40, "Collecting link information...");
@@ -176,29 +203,101 @@ namespace LOD400Uploader.Services
         /// <summary>
         /// Phase 2: File operations (can run on background thread)
         /// Copies linked files and creates ZIP archive
+        /// NOTE: Does NOT call TransmissionData API - that must be done on main thread
+        /// Call FinalizePackageOnMainThread after this completes
         /// </summary>
-        public string CreatePackage(PackageData data, Action<int, string> progressCallback)
+        public PackageResult CreatePackageWithoutRepathing(PackageData data, Action<int, string> progressCallback)
         {
             _tempDir = data.TempDir;
             _zipPath = null;
 
+            // Note: Cleanup is NOT done here on failure - caller owns cleanup responsibility
+            // This prevents double-cleanup issues when exceptions propagate up the call stack
+            
+            // Copy linked files
+            progressCallback?.Invoke(10, "Copying linked files...");
+            string linksDir = Path.Combine(data.TempDir, "Links");
+            var linkResults = CopyLinkFiles(data.LinksToCopy, linksDir, progressCallback);
+
+            // Update manifest with actual link copy results
+            progressCallback?.Invoke(55, "Writing manifest...");
+            string updatedManifest = UpdateManifestWithLinkResults(data.ManifestJson, linkResults);
+            string manifestPath = Path.Combine(data.TempDir, "manifest.json");
+            File.WriteAllText(manifestPath, updatedManifest);
+
+            // Return result for main thread to do TransmissionData work
+            return new PackageResult
+            {
+                ZipPath = null, // Will be set in FinalizePackage
+                LinkResults = linkResults,
+                ModelCopyPath = data.ModelCopyPath
+            };
+        }
+
+        /// <summary>
+        /// Updates the manifest JSON with actual link copy results
+        /// Preserves existing manifest structure and adds copy outcomes
+        /// </summary>
+        private string UpdateManifestWithLinkResults(string manifestJson, LinkCollectionResult linkResults)
+        {
             try
             {
-                // Copy linked files
-                progressCallback?.Invoke(10, "Copying linked files...");
-                string linksDir = Path.Combine(data.TempDir, "Links");
-                var linkResults = CopyLinkFiles(data.LinksToCopy, linksDir, progressCallback);
+                var manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JObject>(manifestJson);
+                
+                // Preserve existing links.toInclude array and add copy outcomes as a new property
+                var linksSection = manifest["links"] as Newtonsoft.Json.Linq.JObject;
+                if (linksSection == null)
+                {
+                    linksSection = new Newtonsoft.Json.Linq.JObject();
+                    manifest["links"] = linksSection;
+                }
+                
+                // Add copy results without overwriting existing toInclude/skipped arrays
+                linksSection["copyResults"] = Newtonsoft.Json.Linq.JToken.FromObject(new
+                {
+                    included = linkResults.IncludedLinks.Select(l => new
+                    {
+                        name = l.Name,
+                        type = l.Type,
+                        originalPath = l.OriginalPath,
+                        copiedAs = l.CopiedAs
+                    }),
+                    failed = linkResults.MissingLinks.Select(l => new
+                    {
+                        name = l.Name,
+                        type = l.Type,
+                        originalPath = l.OriginalPath,
+                        error = l.Error
+                    })
+                });
+                
+                return manifest.ToString(Newtonsoft.Json.Formatting.Indented);
+            }
+            catch
+            {
+                // If update fails, return original manifest
+                return manifestJson;
+            }
+        }
 
-                // Re-path links using TransmissionData API
-                // This ensures links load correctly when opened on a different machine
-                progressCallback?.Invoke(55, "Re-pathing links for portability...");
-                RepathLinksForTransmission(data.ModelCopyPath, linkResults);
+        /// <summary>
+        /// Phase 3: TransmissionData operations (MUST run on main thread)
+        /// This uses Revit API for re-pathing links and must not run on background thread
+        /// </summary>
+        public void RepathLinksOnMainThread(PackageResult result, Action<int, string> progressCallback)
+        {
+            progressCallback?.Invoke(60, "Re-pathing links for portability...");
+            RepathLinksForTransmission(result.ModelCopyPath, result.LinkResults);
+        }
 
-                // Write manifest with actual copy results
-                progressCallback?.Invoke(60, "Writing manifest...");
-                string manifestPath = Path.Combine(data.TempDir, "manifest.json");
-                File.WriteAllText(manifestPath, data.ManifestJson);
-
+        /// <summary>
+        /// Phase 4: Final ZIP creation (can run on background thread)
+        /// Creates the ZIP archive after repathing is done
+        /// </summary>
+        public string FinalizePackage(PackageData data, Action<int, string> progressCallback)
+        {
+            try
+            {
                 // Create ZIP
                 progressCallback?.Invoke(70, "Creating ZIP package...");
                 _zipPath = Path.Combine(Path.GetTempPath(), $"LOD400_Upload_{DateTime.Now:yyyyMMdd_HHmmss}.zip");
@@ -226,6 +325,19 @@ namespace LOD400Uploader.Services
         }
 
         /// <summary>
+        /// Legacy method for backward compatibility - combines all phases
+        /// WARNING: If called from background thread, may crash due to TransmissionData API
+        /// Prefer using CreatePackageWithoutRepathing + RepathLinksOnMainThread + FinalizePackage
+        /// </summary>
+        [Obsolete("Use CreatePackageWithoutRepathing + RepathLinksOnMainThread + FinalizePackage instead")]
+        public string CreatePackage(PackageData data, Action<int, string> progressCallback)
+        {
+            var result = CreatePackageWithoutRepathing(data, progressCallback);
+            RepathLinksOnMainThread(result, progressCallback);
+            return FinalizePackage(data, progressCallback);
+        }
+
+        /// <summary>
         /// Extensions that are "heavyweight" and should be skipped
         /// Point clouds and coordination models can be 10-50GB
         /// </summary>
@@ -243,6 +355,18 @@ namespace LOD400Uploader.Services
             if (string.IsNullOrEmpty(filePath)) return false;
             string ext = Path.GetExtension(filePath);
             return HeavyweightExtensions.Contains(ext);
+        }
+
+        /// <summary>
+        /// Checks if a path is a cloud path (BIM 360, ACC, etc.)
+        /// Cloud paths cannot be accessed with standard File.Copy operations
+        /// </summary>
+        private static bool IsCloudPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            return path.StartsWith("BIM 360://", StringComparison.OrdinalIgnoreCase) ||
+                   path.StartsWith("autodesk.docs://", StringComparison.OrdinalIgnoreCase) ||
+                   path.StartsWith("ACC://", StringComparison.OrdinalIgnoreCase);
         }
 
         private List<LinkToCopy> CollectLinkPaths(Document document)
@@ -561,13 +685,27 @@ namespace LOD400Uploader.Services
             CleanupZipFile();
         }
 
+        /// <summary>
+        /// Cleans up all temporary resources (temp directory and zip file)
+        /// Use this in error handlers to ensure no resources are left behind
+        /// </summary>
+        public void CleanupAll()
+        {
+            CleanupTempDirectory();
+            CleanupZipFile();
+        }
+
         private void CleanupTempDirectory()
         {
+            // Prevent double cleanup which can cause IOException
+            if (_tempDirCleaned) return;
+            
             if (!string.IsNullOrEmpty(_tempDir) && Directory.Exists(_tempDir))
             {
                 try
                 {
                     Directory.Delete(_tempDir, true);
+                    _tempDirCleaned = true;
                 }
                 catch
                 {

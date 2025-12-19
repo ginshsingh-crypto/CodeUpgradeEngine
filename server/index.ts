@@ -62,14 +62,15 @@ async function initStripe() {
 
     log('Setting up managed webhook...', 'stripe');
     const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
-    const { webhook, uuid } = await stripeSync.findOrCreateManagedWebhook(
-      `${webhookBaseUrl}/api/stripe/webhook`,
-      {
-        enabled_events: ['checkout.session.completed', 'checkout.session.expired'],
-        description: 'LOD 400 Delivery Platform webhook',
-      }
+    const webhookResult = await stripeSync.findOrCreateManagedWebhook(
+      `${webhookBaseUrl}/api/stripe/webhook`
     );
-    log(`Webhook configured: ${webhook.url}`, 'stripe');
+    
+    if (webhookResult?.webhook?.url) {
+      log(`Webhook configured: ${webhookResult.webhook.url}`, 'stripe');
+    } else {
+      log('Webhook setup completed', 'stripe');
+    }
 
     log('Syncing Stripe data...', 'stripe');
     stripeSync.syncBackfill()
@@ -92,8 +93,9 @@ async function initStripe() {
     }
 
     // Register Stripe webhook route FIRST (before json middleware)
+    // stripe-replit-sync integration pattern
     app.post(
-      '/api/stripe/webhook/:uuid',
+      '/api/stripe/webhook',
       express.raw({ type: 'application/json' }),
       async (req, res) => {
         const signature = req.headers['stripe-signature'];
@@ -110,8 +112,7 @@ async function initStripe() {
             return res.status(500).json({ error: 'Webhook processing error' });
           }
 
-          const { uuid } = req.params;
-          await WebhookHandlers.processWebhook(req.body as Buffer, sig, uuid);
+          await WebhookHandlers.processWebhook(req.body as Buffer, sig);
 
           res.status(200).json({ received: true });
         } catch (error: any) {

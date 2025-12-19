@@ -73,33 +73,31 @@ namespace LOD400Uploader.Services
         {
             try
             {
-                using (var client = new HttpClient())
+                // Uses static _authClient to prevent socket exhaustion
+                var loginRequest = new { email = email, password = password, deviceLabel = "Revit Add-in" };
+                var json = JsonConvert.SerializeObject(loginRequest);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _authClient.PostAsync($"{_baseUrl}/api/auth/login", content);
+                var responseJson = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
                 {
-                    var loginRequest = new { email = email, password = password, deviceLabel = "Revit Add-in" };
-                    var json = JsonConvert.SerializeObject(loginRequest);
-                    var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                    var response = await client.PostAsync($"{_baseUrl}/api/auth/login", content);
-                    var responseJson = await response.Content.ReadAsStringAsync();
-
-                    if (response.IsSuccessStatusCode)
+                    var result = JsonConvert.DeserializeObject<dynamic>(responseJson);
+                    return new LoginResult
                     {
-                        var result = JsonConvert.DeserializeObject<dynamic>(responseJson);
-                        return new LoginResult
-                        {
-                            Success = true,
-                            Token = result.token
-                        };
-                    }
-                    else
+                        Success = true,
+                        Token = result.token
+                    };
+                }
+                else
+                {
+                    var error = JsonConvert.DeserializeObject<dynamic>(responseJson);
+                    return new LoginResult
                     {
-                        var error = JsonConvert.DeserializeObject<dynamic>(responseJson);
-                        return new LoginResult
-                        {
-                            Success = false,
-                            ErrorMessage = error?.message ?? "Login failed"
-                        };
-                    }
+                        Success = false,
+                        ErrorMessage = error?.message ?? "Login failed"
+                    };
                 }
             }
             catch (Exception ex)
@@ -116,12 +114,12 @@ namespace LOD400Uploader.Services
         {
             try
             {
-                using (var client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    var response = await client.GetAsync($"{_baseUrl}/api/auth/validate");
-                    return response.IsSuccessStatusCode;
-                }
+                // Uses static _authClient to prevent socket exhaustion
+                // Note: We create a fresh request with headers to avoid header conflicts
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/api/auth/validate");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var response = await _authClient.SendAsync(request);
+                return response.IsSuccessStatusCode;
             }
             catch
             {
@@ -222,38 +220,34 @@ namespace LOD400Uploader.Services
 
         public async Task UploadFileAsync(string uploadUrl, string filePath, Action<int> progressCallback)
         {
-            using (var client = new HttpClient())
+            progressCallback?.Invoke(0);
+
+            // Get file size for progress calculation
+            var fileInfo = new FileInfo(filePath);
+            long totalBytes = fileInfo.Length;
+
+            // Stream the file directly from disk with progress reporting
+            // Uses static _simpleUploadClient to prevent socket exhaustion
+            using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920))
             {
-                client.Timeout = TimeSpan.FromHours(2);
-
-                progressCallback?.Invoke(0);
-
-                // Get file size for progress calculation
-                var fileInfo = new FileInfo(filePath);
-                long totalBytes = fileInfo.Length;
-
-                // Stream the file directly from disk with progress reporting
-                using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920))
+                // Wrap in ProgressStream to track bytes read
+                using (var progressStream = new ProgressStream(fileStream, totalBytes, (percent) =>
                 {
-                    // Wrap in ProgressStream to track bytes read
-                    using (var progressStream = new ProgressStream(fileStream, totalBytes, (percent) =>
+                    progressCallback?.Invoke(percent);
+                }))
+                {
+                    using (var content = new StreamContent(progressStream, bufferSize: 81920))
                     {
-                        progressCallback?.Invoke(percent);
-                    }))
-                    {
-                        using (var content = new StreamContent(progressStream, bufferSize: 81920))
-                        {
-                            content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-                            content.Headers.ContentLength = totalBytes;
-                            
-                            var response = await client.PutAsync(uploadUrl, content);
-                            response.EnsureSuccessStatusCode();
-                        }
+                        content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+                        content.Headers.ContentLength = totalBytes;
+                        
+                        var response = await _simpleUploadClient.PutAsync(uploadUrl, content);
+                        response.EnsureSuccessStatusCode();
                     }
                 }
-
-                progressCallback?.Invoke(100);
             }
+
+            progressCallback?.Invoke(100);
         }
 
         /// <summary>
@@ -393,13 +387,22 @@ namespace LOD400Uploader.Services
             return totalRead;
         }
 
-        // Reusable HttpClient for chunk uploads to avoid socket exhaustion
+        // Reusable HttpClient instances to avoid socket exhaustion
+        // Creating new HttpClient for each request can exhaust available TCP ports
         private static readonly HttpClient _chunkUploadClient;
+        private static readonly HttpClient _simpleUploadClient;
+        private static readonly HttpClient _authClient;
 
         static ApiService()
         {
             _chunkUploadClient = new HttpClient();
             _chunkUploadClient.Timeout = TimeSpan.FromMinutes(10);
+
+            _simpleUploadClient = new HttpClient();
+            _simpleUploadClient.Timeout = TimeSpan.FromHours(2);
+
+            _authClient = new HttpClient();
+            _authClient.Timeout = TimeSpan.FromSeconds(30);
         }
 
         private async Task UploadChunkAsync(

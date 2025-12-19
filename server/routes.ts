@@ -535,9 +535,10 @@ export async function registerRoutes(
 
       const { sheetCount, sheets } = parsed.data;
 
-      // Security validation: sheet count must match actual sheets array
+      // Security validation: sheets array is now required and must match sheetCount
       // Prevents pricing exploit where client sends low sheetCount with many sheets
-      if (sheets && sheets.length > 0 && sheets.length !== sheetCount) {
+      // or omits sheets array entirely to bypass validation
+      if (sheets.length !== sheetCount) {
         return res.status(400).json({ 
           message: `Sheet count mismatch: claimed ${sheetCount} but provided ${sheets.length} sheets` 
         });
@@ -553,9 +554,7 @@ export async function registerRoutes(
       });
 
       // Store individual sheet details for dispute resolution
-      if (sheets && sheets.length > 0) {
-        await storage.createOrderSheets(order.id, sheets);
-      }
+      await storage.createOrderSheets(order.id, sheets);
 
       res.status(201).json(order);
     } catch (error) {
@@ -958,9 +957,10 @@ export async function registerRoutes(
 
       const { sheetCount, sheets } = parsed.data;
 
-      // Security validation: sheet count must match actual sheets array
+      // Security validation: sheets array is now required and must match sheetCount
       // Prevents pricing exploit where client sends low sheetCount with many sheets
-      if (sheets && sheets.length > 0 && sheets.length !== sheetCount) {
+      // or omits sheets array entirely to bypass validation
+      if (sheets.length !== sheetCount) {
         return res.status(400).json({ 
           message: `Sheet count mismatch: claimed ${sheetCount} but provided ${sheets.length} sheets` 
         });
@@ -976,9 +976,7 @@ export async function registerRoutes(
       });
 
       // Store individual sheet details for dispute resolution
-      if (sheets && sheets.length > 0) {
-        await storage.createOrderSheets(order.id, sheets);
-      }
+      await storage.createOrderSheets(order.id, sheets);
 
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {

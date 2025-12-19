@@ -54,6 +54,18 @@ namespace LOD400Uploader
 
         public Result OnShutdown(UIControlledApplication application)
         {
+            // Check if an upload is still in progress and warn the user
+            // Note: We cannot prevent Revit shutdown, but we can notify the user
+            if (LOD400Uploader.Views.UploadHelper.IsUploadInProgress())
+            {
+                TaskDialog dialog = new TaskDialog("Upload In Progress");
+                dialog.MainInstruction = "An upload is still in progress!";
+                dialog.MainContent = "Your model upload will be cancelled if Revit closes.\n\n" +
+                    "Please wait for the upload to complete before closing Revit.";
+                dialog.MainIcon = TaskDialogIcon.TaskDialogIconWarning;
+                dialog.Show();
+            }
+            
             return Result.Succeeded;
         }
         

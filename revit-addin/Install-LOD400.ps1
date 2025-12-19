@@ -76,8 +76,8 @@ $RevitBasePaths = @(
     "$env:ProgramData\Autodesk\Revit\Addins"
 )
 
-# Check for Revit 2020-2025
-for ($year = 2020; $year -le 2025; $year++) {
+# Check for Revit 2020-2024 (Note: 2025 uses .NET 8 and requires separate build)
+for ($year = 2020; $year -le 2024; $year++) {
     $programPath = "C:\Program Files\Autodesk\Revit $year"
     if (Test-Path $programPath) {
         $RevitVersions += $year

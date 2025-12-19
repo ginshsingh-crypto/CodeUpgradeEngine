@@ -14,10 +14,12 @@ A Revit add-in for uploading BIM models to the LOD 400 Delivery Platform for pro
 
 ## Requirements
 
-- **Revit Version**: 2024 (can be adapted for 2020-2025)
+- **Revit Version**: 2022, 2023, or 2024
 - **.NET Framework**: 4.8
 - **Visual Studio**: 2022 or later (for compilation)
 - **Internet Connection**: Required for API communication
+
+> **Note on Revit 2025**: Revit 2025 uses .NET 8 (not .NET Framework 4.8), so this add-in is **not compatible** with Revit 2025. A separate .NET 8 build would be required for 2025 support.
 
 ## Getting Started
 

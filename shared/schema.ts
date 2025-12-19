@@ -242,7 +242,7 @@ export type SheetInfo = z.infer<typeof sheetInfoSchema>;
 // API request/response types
 export const createOrderRequestSchema = z.object({
   sheetCount: z.number().min(1).max(1000),
-  sheets: z.array(sheetInfoSchema).optional(),
+  sheets: z.array(sheetInfoSchema).min(1, "At least one sheet must be provided"),
 });
 
 export type CreateOrderRequest = z.infer<typeof createOrderRequestSchema>;

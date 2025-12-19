@@ -356,10 +356,23 @@ namespace LOD400Uploader.Views
         }
     }
 
+    /// <summary>
+    /// Helper class to expose upload status to App.cs for shutdown warning
+    /// </summary>
+    public static class UploadHelper
+    {
+        public static bool IsUploadInProgress() => BackgroundUploader.IsUploading;
+    }
+
     public static class BackgroundUploader
     {
         private static bool _isUploading = false;
         private const long RESUMABLE_THRESHOLD = 50 * 1024 * 1024; // 50 MB - use resumable uploads for files larger than this
+        
+        /// <summary>
+        /// Returns true if an upload is currently in progress
+        /// </summary>
+        public static bool IsUploading => _isUploading;
 
         public static void StartUpload(ApiService apiService, PackagingService packagingService, 
             string orderId, string packagePath, int sheetCount)

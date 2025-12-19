@@ -1,0 +1,53 @@
+1. The "Double Definition" Compilation Error (C#)
+In revit-addin/LODUploader/Services/ApiService.cs, you pasted the new, fixed code below the old code instead of replacing it.
+
+The Error: The compiler will throw CS0111: Type 'ApiService' already defines a member called 'UploadChunkAsync'.
+
+The Evidence:
+
+Instance 1: You have the old, dangerous version using using (var client = new HttpClient()).
+
+Instance 2: Further down, you have the new, optimized version using _chunkUploadClient.
+
+The Fix: You must delete the first definition of UploadChunkAsync.
+
+2. "Copy-Paste" Text Corruption (Frontend)
+The React code you provided has severe formatting errors where newlines have been inserted into the middle of keywords. This breaks the JavaScript parser.
+
+File: client/src/components/ui/sidebar.tsx
+
+Broken Code: const context = Re\nact.useContext
+
+Result: SyntaxError: Unexpected token.
+
+File: client/src/pages/Settings.tsx
+
+Broken Code: export d\nefault\nfu\nnction Settings()
+
+Result: The function declaration is completely mangled and will not build.
+
+File: client/src/components/OrderTimeline.tsx
+
+Broken Code: status: "p\nending\n"
+
+Result: Logic failure. The status string will not match "pending", breaking the UI.
+
+3. The "Cloud Link" Logic Gap
+You successfully added logic to handle the main model being on the cloud (IsCloudPath), but you missed the linked files (Structure, MEP, etc.).
+
+File: PackagingService.cs -> CollectLinkPaths
+
+Code: if (!string.IsNullOrEmpty(linkPath) && File.Exists(linkPath))
+
+The Flaw: Standard Windows File.Exists returns false for cloud paths (e.g., BIM 360://...).
+
+The Consequence: If a client uploads a cloud model, the add-in will upload the main file but silently strip out all engineering links, resulting in an empty building.
+
+4. Infrastructure Lock-in
+Your backend is still hard-wired to run only inside the Replit environment.
+
+Storage: server/objectStorage.ts connects to http://127.0.0.1:1106. This is a Replit-internal address.
+
+Email: server/emailService.ts depends on REPLIT_CONNECTORS_HOSTNAME.
+
+Consequence: You cannot deploy this to AWS, Azure, or a standard VPS without rewriting these services.

@@ -11,6 +11,15 @@ using System.Net.Http.Headers;
 
 namespace LOD400Uploader.Services
 {
+    /// <summary>
+    /// Exception thrown when the API returns 401 Unauthorized (expired/invalid token)
+    /// </summary>
+    public class ApiUnauthorizedException : Exception
+    {
+        public ApiUnauthorizedException() : base("Session expired or unauthorized") { }
+        public ApiUnauthorizedException(string message) : base(message) { }
+    }
+
     public class LoginResult
     {
         public bool Success { get; set; }
@@ -139,6 +148,13 @@ namespace LOD400Uploader.Services
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.PostAsync($"{_baseUrl}/api/addin/create-order", content);
+            
+            // Check for 401 Unauthorized specifically (expired token)
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                throw new ApiUnauthorizedException("Session expired. Please sign in again.");
+            }
+            
             response.EnsureSuccessStatusCode();
 
             var responseJson = await response.Content.ReadAsStringAsync();

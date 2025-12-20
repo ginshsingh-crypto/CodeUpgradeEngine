@@ -36,6 +36,14 @@ namespace LOD400Uploader.Services
         public string Name { get; set; }
         public string Type { get; set; }
         public bool IsCloud { get; set; }
+        /// <summary>
+        /// True if this file was skipped (e.g., point cloud, too large)
+        /// </summary>
+        public bool IsSkipped { get; set; }
+        /// <summary>
+        /// Reason the file was skipped (e.g., "Point cloud - too large")
+        /// </summary>
+        public string SkipReason { get; set; }
     }
 
     public class PackagingService
@@ -215,10 +223,27 @@ namespace LOD400Uploader.Services
             // Note: Cleanup is NOT done here on failure - caller owns cleanup responsibility
             // This prevents double-cleanup issues when exceptions propagate up the call stack
             
-            // Copy linked files
+            // Copy linked files (excluding skipped heavyweight files)
             progressCallback?.Invoke(10, "Copying linked files...");
             string linksDir = Path.Combine(data.TempDir, "Links");
-            var linkResults = CopyLinkFiles(data.LinksToCopy, linksDir, progressCallback);
+            // Filter out skipped links BEFORE passing to CopyLinkFiles - they should not be copied
+            var linksToCopy = data.LinksToCopy.Where(l => !l.IsSkipped).ToList();
+            var skippedLinks = data.LinksToCopy.Where(l => l.IsSkipped).ToList();
+            var linkResults = CopyLinkFiles(linksToCopy, linksDir, progressCallback);
+            
+            // Add skipped links to the results so they appear in the manifest
+            foreach (var skipped in skippedLinks)
+            {
+                linkResults.SkippedLinks.Add(new LinkedFileInfo
+                {
+                    Name = skipped.Name,
+                    Type = skipped.Type,
+                    OriginalPath = skipped.SourcePath,
+                    Status = "Skipped",
+                    IsCloud = skipped.IsCloud,
+                    Error = skipped.SkipReason
+                });
+            }
 
             // Update manifest with actual link copy results
             progressCallback?.Invoke(55, "Writing manifest...");
@@ -255,7 +280,7 @@ namespace LOD400Uploader.Services
                 
                 // Add copy results without overwriting existing toInclude/cloudHosted arrays
                 // Note: Cloud links are already in links.cloudHosted from CreateManifestJson
-                // copyResults only contains local link copy outcomes (success/failure)
+                // copyResults contains local link copy outcomes (success/failure) plus skipped heavyweight files
                 linksSection["copyResults"] = Newtonsoft.Json.Linq.JToken.FromObject(new
                 {
                     included = linkResults.IncludedLinks.Select(l => new
@@ -272,7 +297,17 @@ namespace LOD400Uploader.Services
                         originalPath = l.OriginalPath,
                         error = l.Error
                     }),
-                    cloudSkipped = linkResults.CloudLinks.Count
+                    cloudSkipped = linkResults.CloudLinks.Count,
+                    // Heavyweight files (point clouds, coordination models) that exist but were not included
+                    // Admin should request these files separately from the client if needed
+                    skippedFiles = linkResults.SkippedLinks.Select(l => new
+                    {
+                        name = l.Name,
+                        type = l.Type,
+                        originalPath = l.OriginalPath,
+                        isCloud = l.IsCloud,
+                        reason = l.Error  // Error field contains the skip reason
+                    })
                 });
                 
                 return manifest.ToString(Newtonsoft.Json.Formatting.Indented);
@@ -400,10 +435,20 @@ namespace LOD400Uploader.Services
                             // Cloud links cannot be copied with File.Copy but we record them in the manifest
                             if (IsCloudPath(linkPath))
                             {
-                                // Skip heavyweight files even for cloud
                                 string cloudFileName = linkPath.Split('/').LastOrDefault() ?? linkPath;
+                                // Track heavyweight cloud files as skipped (not silently ignored)
                                 if (IsHeavyweightFile(cloudFileName))
                                 {
+                                    links.Add(new LinkToCopy
+                                    {
+                                        SourcePath = linkPath,
+                                        DestFileName = cloudFileName,
+                                        Name = linkType.Name,
+                                        Type = "RevitLink",
+                                        IsCloud = true,
+                                        IsSkipped = true,
+                                        SkipReason = $"Heavyweight file ({Path.GetExtension(cloudFileName)}) - point cloud or coordination model"
+                                    });
                                     continue;
                                 }
 
@@ -429,9 +474,19 @@ namespace LOD400Uploader.Services
                             
                             if (File.Exists(linkPath))
                             {
-                                // Skip heavyweight files (point clouds, coordination models)
+                                // Track heavyweight files as skipped (not silently ignored)
                                 if (IsHeavyweightFile(linkPath))
                                 {
+                                    links.Add(new LinkToCopy
+                                    {
+                                        SourcePath = linkPath,
+                                        DestFileName = Path.GetFileName(linkPath),
+                                        Name = linkType.Name,
+                                        Type = "RevitLink",
+                                        IsCloud = false,
+                                        IsSkipped = true,
+                                        SkipReason = $"Heavyweight file ({Path.GetExtension(linkPath)}) - point cloud or coordination model"
+                                    });
                                     continue;
                                 }
 
@@ -470,8 +525,19 @@ namespace LOD400Uploader.Services
                             if (IsCloudPath(linkPath))
                             {
                                 string cloudFileName = linkPath.Split('/').LastOrDefault() ?? linkPath;
+                                // Track heavyweight cloud files as skipped
                                 if (IsHeavyweightFile(cloudFileName))
                                 {
+                                    links.Add(new LinkToCopy
+                                    {
+                                        SourcePath = linkPath,
+                                        DestFileName = cloudFileName,
+                                        Name = cadLink.Name,
+                                        Type = "CADLink",
+                                        IsCloud = true,
+                                        IsSkipped = true,
+                                        SkipReason = $"Heavyweight file ({Path.GetExtension(cloudFileName)}) - point cloud or coordination model"
+                                    });
                                     continue;
                                 }
 
@@ -495,9 +561,19 @@ namespace LOD400Uploader.Services
                             
                             if (File.Exists(linkPath))
                             {
-                                // Skip heavyweight files
+                                // Track heavyweight files as skipped
                                 if (IsHeavyweightFile(linkPath))
                                 {
+                                    links.Add(new LinkToCopy
+                                    {
+                                        SourcePath = linkPath,
+                                        DestFileName = Path.GetFileName(linkPath),
+                                        Name = cadLink.Name,
+                                        Type = "CADLink",
+                                        IsCloud = false,
+                                        IsSkipped = true,
+                                        SkipReason = $"Heavyweight file ({Path.GetExtension(linkPath)}) - point cloud or coordination model"
+                                    });
                                     continue;
                                 }
 
@@ -694,9 +770,11 @@ namespace LOD400Uploader.Services
                 username = app?.Username ?? "Unknown"
             };
 
-            // Separate local and cloud links for manifest
-            var localLinks = links.Where(l => !l.IsCloud).ToList();
-            var cloudLinks = links.Where(l => l.IsCloud).ToList();
+            // Separate links into categories for the manifest
+            // IMPORTANT: Exclude IsSkipped links from toInclude/cloudHosted - they should only appear in skippedFiles
+            var localLinks = links.Where(l => !l.IsCloud && !l.IsSkipped).ToList();
+            var cloudLinks = links.Where(l => l.IsCloud && !l.IsSkipped).ToList();
+            var skippedLinks = links.Where(l => l.IsSkipped).ToList();
 
             var manifest = new
             {
@@ -710,6 +788,7 @@ namespace LOD400Uploader.Services
                 environment = environment,  // Detailed environment for version warnings
                 links = new
                 {
+                    // Local links that WILL be included in the package
                     toInclude = localLinks.Select(l => new
                     {
                         name = l.Name,
@@ -725,6 +804,18 @@ namespace LOD400Uploader.Services
                         type = l.Type,
                         cloudPath = l.SourcePath,
                         note = "Cloud-hosted file - requires BIM 360/ACC access or local download"
+                    }),
+                    // Heavyweight files (point clouds, coordination models) that were intentionally skipped
+                    // These files EXIST in the original model but are NOT included in the package
+                    // Admin should request these files separately from the client if needed
+                    skippedFiles = skippedLinks.Select(l => new
+                    {
+                        name = l.Name,
+                        type = l.Type,
+                        originalPath = l.SourcePath,
+                        fileName = l.DestFileName,
+                        isCloud = l.IsCloud,
+                        skipReason = l.SkipReason
                     })
                 }
             };
@@ -824,6 +915,10 @@ namespace LOD400Uploader.Services
         public List<LinkedFileInfo> IncludedLinks { get; set; } = new List<LinkedFileInfo>();
         public List<LinkedFileInfo> MissingLinks { get; set; } = new List<LinkedFileInfo>();
         public List<LinkedFileInfo> CloudLinks { get; set; } = new List<LinkedFileInfo>();
+        /// <summary>
+        /// Heavyweight files (point clouds, coordination models) that were intentionally skipped
+        /// </summary>
+        public List<LinkedFileInfo> SkippedLinks { get; set; } = new List<LinkedFileInfo>();
         public string CollectionError { get; set; }
     }
 

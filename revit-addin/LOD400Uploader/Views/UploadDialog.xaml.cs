@@ -159,6 +159,45 @@ namespace LOD400Uploader.Views
             SummaryText.Visibility = System.Windows.Visibility.Visible;
         }
 
+        /// <summary>
+        /// Clears the stored session config and prompts user to re-login.
+        /// Called when the server returns 401 Unauthorized (expired/invalid token).
+        /// </summary>
+        private void ClearConfigAndRelogin()
+        {
+            try
+            {
+                // Delete the config file containing the expired token
+                string configPath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "LOD400Uploader",
+                    "config.json");
+                if (System.IO.File.Exists(configPath))
+                {
+                    System.IO.File.Delete(configPath);
+                }
+            }
+            catch { /* Ignore deletion errors */ }
+
+            HideProgress();
+            UploadButton.IsEnabled = true;
+            CancelButton.IsEnabled = true;
+
+            MessageBox.Show(
+                "Your session has expired.\n\nPlease sign in again to continue.",
+                "Session Expired",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            // Show login dialog
+            var loginDialog = new LoginDialog();
+            if (loginDialog.ShowDialog() == true && loginDialog.IsAuthenticated)
+            {
+                _apiService.LoadFromConfig();
+                // User can now click Upload again
+            }
+        }
+
         private async void UploadButton_Click(object sender, RoutedEventArgs e)
         {
             var selectedSheets = _sheets.Where(s => s.IsSelected).ToList();
@@ -239,7 +278,17 @@ namespace LOD400Uploader.Views
                     SheetName = s.SheetName
                 }).ToList();
 
-                var orderResponse = await _apiService.CreateOrderAsync(selectedSheets.Count, sheetInfoList);
+                CreateOrderResponse orderResponse;
+                try
+                {
+                    orderResponse = await _apiService.CreateOrderAsync(selectedSheets.Count, sheetInfoList);
+                }
+                catch (ApiUnauthorizedException)
+                {
+                    // Session expired - clear config and prompt re-login
+                    ClearConfigAndRelogin();
+                    return;
+                }
                 var order = orderResponse.Order;
 
                 if (!string.IsNullOrEmpty(orderResponse.CheckoutUrl))

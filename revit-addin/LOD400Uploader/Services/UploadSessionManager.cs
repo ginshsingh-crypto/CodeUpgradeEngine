@@ -22,11 +22,16 @@ namespace LOD400Uploader.Services
             _sessions = LoadSessions();
         }
 
+        /// <summary>
+        /// Gets an existing session for an order.
+        /// NOTE: We match by orderId + fileSize only (not filePath) because the temp directory
+        /// path changes each time due to GUID. The orderId is unique per order, and fileSize
+        /// validates the package hasn't changed.
+        /// </summary>
         public ResumableUploadSession GetExistingSession(string orderId, string filePath, long fileSize)
         {
             var session = _sessions.FirstOrDefault(s =>
                 s.OrderId == orderId &&
-                s.FilePath == filePath &&
                 s.FileSize == fileSize &&
                 !s.IsExpired);
 

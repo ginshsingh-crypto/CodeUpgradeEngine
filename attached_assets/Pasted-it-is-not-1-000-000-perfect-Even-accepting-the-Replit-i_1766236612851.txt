@@ -1,0 +1,54 @@
+it is not 1,000,000% perfect.
+
+Even accepting the Replit infrastructure and ignoring the typos, there are 3 specific logical flaws remaining in the C# add-in. These aren't syntax errors; they are functional bugs that will cause your features to fail in specific real-world scenarios.
+
+1. The "Resume Upload" Infinite Loop (Critical Logic Flaw)
+You implemented a sophisticated UploadSessionManager to resume interrupted uploads, but it is functionally broken.
+
+The Code: In PackagingService.cs inside PreparePackageData:
+
+C#
+
+data.TempDir = Path.Combine(Path.GetTempPath(), "LOD400Upload_" + Guid.NewGuid().ToString("N"));
+The Scenario:
+
+User clicks "Upload". A zip is created at .../GUID-A/model.zip. Upload starts.
+
+Internet fails at 50%.
+
+User clicks "Upload" again to retry.
+
+The code runs PreparePackageData again, generating a NEW GUID (.../GUID-B/model.zip).
+
+The Failure: In UploadSessionManager.cs, you look up sessions by FilePath. Because the folder path changes every single time, it never finds the old session. It will restart from 0% every time.
+
+The Fix: You must use a consistent ID for the session lookup (e.g., Hash of "Project Name + Sheet Count") rather than the file path, OR modify the UI to offer a "Retry" button that reuses the existing package.
+
+2. The "Zombie Token" Trap (UX Flaw)
+Your users can get locked out of the add-in if they don't use it for a month.
+
+The Logic:
+
+User logs in. Token is saved to config.json.
+
+User returns 35 days later (token is expired).
+
+UploadDialog loads the token and tries to CreateOrder.
+
+The Failure: The server returns 401 Unauthorized. The add-in catches this and shows a generic MessageBox error. The user is stuck. They are still on the Upload screen, and there is no "Logout" button to clear the bad token. They can't upload, and they can't re-login.
+
+The Fix: In UploadDialog.xaml.cs, inside the catch block for CreateOrder, check if the error code is 401. If it is, automatically delete config.json and restart the LoginDialog flow.
+
+3. The "Invisible" Heavy Files (Business Logic)
+You correctly skip heavy files (Point Clouds) to keep the package light, but you do it silently.
+
+The Code: In PackagingService.cs:
+
+C#
+
+if (IsHeavyweightFile(linkPath)) { continue; }
+The Flaw: You continue (skip) without recording it.
+
+The Result: The admin receives the model. They open it. The 50GB Point Cloud is missing. The admin checks the manifest.json, and it's not listed there either. The admin has no idea that a point cloud ever existed or that they need to ask the client for it.
+
+The Fix: Add a skippedFiles array to your manifest.json structure and add these files there instead of just continue.

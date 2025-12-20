@@ -20,6 +20,12 @@ namespace LOD400Uploader.Views
         private readonly ObservableCollection<SheetItem> _sheets;
         private readonly ApiService _apiService;
         private readonly PackagingService _packagingService;
+        
+        // Cancellation token for the current upload operation
+        private System.Threading.CancellationTokenSource _uploadCancellation;
+        
+        // Flag to indicate if we're currently in the upload phase (after packaging)
+        private bool _isUploading = false;
 
         // P/Invoke for getting system memory info (works on .NET Framework 4.8)
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
@@ -144,7 +150,26 @@ namespace LOD400Uploader.Views
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
+            // Close the dialog (during sheet selection phase)
+            // Note: Background uploads continue after dialog closes and can be cancelled
+            // by attempting to start a new upload (which offers to cancel the existing one)
             Close();
+        }
+        
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            
+            // If we're closing after intentionally starting a background upload, don't prompt
+            // The upload will continue in the background and can be cancelled by starting a new upload
+            if (_closingAfterUploadStarted)
+            {
+                return;
+            }
+            
+            // No need to check IsUploading here - if user closes during sheet selection,
+            // there's no upload to cancel. If there's a background upload from a previous
+            // dialog instance, that's handled by StartUpload when user tries again.
         }
 
         private void ShowProgress()
@@ -383,6 +408,8 @@ namespace LOD400Uploader.Views
                 // Start background upload
                 BackgroundUploader.StartUpload(_apiService, _packagingService, orderId, localPackagePath, sheetCount);
 
+                // Mark that we're closing intentionally after starting upload (don't prompt in OnClosing)
+                _closingAfterUploadStarted = true;
                 Close();
             }
             catch (Exception ex)
@@ -416,6 +443,7 @@ namespace LOD400Uploader.Views
     public static class BackgroundUploader
     {
         private static bool _isUploading = false;
+        private static System.Threading.CancellationTokenSource _cancellationTokenSource;
         private const long RESUMABLE_THRESHOLD = 50 * 1024 * 1024; // 50 MB - use resumable uploads for files larger than this
         
         /// <summary>
@@ -423,17 +451,48 @@ namespace LOD400Uploader.Views
         /// </summary>
         public static bool IsUploading => _isUploading;
 
+        /// <summary>
+        /// Cancels the current upload if one is in progress.
+        /// The package file is preserved so the upload can be resumed later.
+        /// </summary>
+        public static void CancelUpload()
+        {
+            if (_isUploading && _cancellationTokenSource != null)
+            {
+                _cancellationTokenSource.Cancel();
+            }
+        }
+
         public static void StartUpload(ApiService apiService, PackagingService packagingService, 
             string orderId, string packagePath, int sheetCount)
         {
             if (_isUploading)
             {
-                MessageBox.Show("Another upload is already in progress.", "Upload In Progress",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Offer to cancel the existing upload instead of just showing an error
+                var result = MessageBox.Show(
+                    "Another upload is already in progress.\n\n" +
+                    "Would you like to cancel it and start a new upload?",
+                    "Upload In Progress",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    CancelUpload();
+                    // Note: The cancelled upload will set _isUploading = false when it completes
+                    // User can try again after a moment
+                    MessageBox.Show(
+                        "Upload cancelled. Please wait a moment, then try again.",
+                        "Upload Cancelled",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
                 return;
             }
 
             _isUploading = true;
+            _cancellationTokenSource = new System.Threading.CancellationTokenSource();
+            var cancellationToken = _cancellationTokenSource.Token;
 
             Task.Run(async () =>
             {
@@ -445,13 +504,25 @@ namespace LOD400Uploader.Views
                     if (fileSize > RESUMABLE_THRESHOLD)
                     {
                         // Use resumable upload for large files
-                        await UploadResumableAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount);
+                        await UploadResumableAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount, cancellationToken);
                     }
                     else
                     {
                         // Use simple upload for smaller files
-                        await UploadSimpleAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount);
+                        await UploadSimpleAsync(apiService, packagingService, orderId, packagePath, fileName, fileSize, sheetCount, cancellationToken);
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Upload was cancelled - don't cleanup package, it can be resumed
+                    System.Windows.Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            "Upload cancelled.\n\nThe upload can be resumed by starting a new upload for the same order.",
+                            "Upload Cancelled",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -469,17 +540,26 @@ namespace LOD400Uploader.Views
                 finally
                 {
                     _isUploading = false;
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
                 }
             });
         }
 
         private static async Task UploadSimpleAsync(ApiService apiService, PackagingService packagingService,
-            string orderId, string packagePath, string fileName, long fileSize, int sheetCount)
+            string orderId, string packagePath, string fileName, long fileSize, int sheetCount,
+            System.Threading.CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            
             string uploadUrl = await apiService.GetUploadUrlAsync(orderId, fileName);
 
-            await apiService.UploadFileAsync(uploadUrl, packagePath, (progress) => { });
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            await apiService.UploadFileAsync(uploadUrl, packagePath, (progress) => { }, cancellationToken);
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, uploadUrl);
 
             packagingService.Cleanup(packagePath);
@@ -496,11 +576,14 @@ namespace LOD400Uploader.Views
         }
 
         private static async Task UploadResumableAsync(ApiService apiService, PackagingService packagingService,
-            string orderId, string packagePath, string fileName, long fileSize, int sheetCount)
+            string orderId, string packagePath, string fileName, long fileSize, int sheetCount,
+            System.Threading.CancellationToken cancellationToken)
         {
             var sessionManager = new UploadSessionManager();
             sessionManager.CleanupExpiredSessions();
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             // Check for existing session to resume
             var existingSession = sessionManager.GetExistingSession(orderId, packagePath, fileSize);
             ResumableUploadSession session;
@@ -553,6 +636,8 @@ namespace LOD400Uploader.Views
                 sessionManager.SaveSession(session);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             // Perform the chunked upload with progress tracking
             await apiService.UploadFileResumableAsync(
                 session,
@@ -562,8 +647,11 @@ namespace LOD400Uploader.Views
                 {
                     // Save session state after each chunk for resume capability
                     sessionManager.SaveSession(updatedSession);
-                });
+                },
+                cancellationToken);
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             // Mark upload complete
             await apiService.MarkUploadCompleteAsync(orderId, fileName, fileSize, session.StorageKey);
 

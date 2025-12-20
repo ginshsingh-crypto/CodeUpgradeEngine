@@ -238,7 +238,8 @@ namespace LOD400Uploader.Services
             return JsonConvert.DeserializeObject<DownloadUrlResponse>(responseJson);
         }
 
-        public async Task UploadFileAsync(string uploadUrl, string filePath, Action<int> progressCallback)
+        public async Task UploadFileAsync(string uploadUrl, string filePath, Action<int> progressCallback, 
+            CancellationToken cancellationToken = default)
         {
             progressCallback?.Invoke(0);
 
@@ -246,6 +247,8 @@ namespace LOD400Uploader.Services
             var fileInfo = new FileInfo(filePath);
             long totalBytes = fileInfo.Length;
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             // Stream the file directly from disk with progress reporting
             // Uses static _simpleUploadClient to prevent socket exhaustion
             using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920))
@@ -261,7 +264,8 @@ namespace LOD400Uploader.Services
                         content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
                         content.Headers.ContentLength = totalBytes;
                         
-                        var response = await _simpleUploadClient.PutAsync(uploadUrl, content);
+                        // Pass cancellation token to allow cancelling during upload
+                        var response = await _simpleUploadClient.PutAsync(uploadUrl, content, cancellationToken);
                         response.EnsureSuccessStatusCode();
                     }
                 }

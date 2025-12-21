@@ -58,9 +58,30 @@ namespace LOD400Uploader.Views
                     Directory.CreateDirectory(dir);
                 }
 
-                var config = new { sessionToken = sessionToken, email = email };
-                var json = Newtonsoft.Json.JsonConvert.SerializeObject(config);
-                File.WriteAllText(ConfigPath, json);
+                // Load existing config to preserve other values (like apiUrl)
+                Newtonsoft.Json.Linq.JObject config;
+                if (File.Exists(ConfigPath))
+                {
+                    try
+                    {
+                        var existingJson = File.ReadAllText(ConfigPath);
+                        config = Newtonsoft.Json.Linq.JObject.Parse(existingJson);
+                    }
+                    catch
+                    {
+                        config = new Newtonsoft.Json.Linq.JObject();
+                    }
+                }
+                else
+                {
+                    config = new Newtonsoft.Json.Linq.JObject();
+                }
+
+                // Update session and email, preserving other fields
+                config["sessionToken"] = sessionToken;
+                config["email"] = email;
+                
+                File.WriteAllText(ConfigPath, config.ToString());
             }
             catch
             {

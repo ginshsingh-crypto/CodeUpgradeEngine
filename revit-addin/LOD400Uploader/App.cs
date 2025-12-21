@@ -35,13 +35,22 @@ namespace LOD400Uploader
 
                 PushButtonData uploadButtonData = new PushButtonData(
                     "SelectSheets",
-                    "Select\nSheets",
+                    "Upload\nSheets",
                     assemblyPath,
                     "LOD400Uploader.Commands.UploadSheetsCommand"
                 );
                 uploadButtonData.ToolTip = "Select sheets and upload for LOD 400 upgrade";
 
-                PushButton uploadButton = ribbonPanel.AddItem(uploadButtonData) as PushButton;
+                PushButtonData statusButtonData = new PushButtonData(
+                    "CheckStatus",
+                    "Check\nStatus",
+                    assemblyPath,
+                    "LOD400Uploader.Commands.CheckStatusCommand"
+                );
+                statusButtonData.ToolTip = "View order status and download deliverables";
+
+                ribbonPanel.AddItem(uploadButtonData);
+                ribbonPanel.AddItem(statusButtonData);
 
                 return Result.Succeeded;
             }
@@ -106,11 +115,28 @@ namespace LOD400Uploader
                     Directory.CreateDirectory(ConfigDir);
                 }
                 
-                JObject config = new JObject
+                // Load existing config to preserve session token and other values
+                JObject config;
+                if (File.Exists(ConfigFile))
                 {
-                    ["apiUrl"] = url.TrimEnd('/'),
-                    ["updatedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-                };
+                    try
+                    {
+                        string existingJson = File.ReadAllText(ConfigFile);
+                        config = JObject.Parse(existingJson);
+                    }
+                    catch
+                    {
+                        config = new JObject();
+                    }
+                }
+                else
+                {
+                    config = new JObject();
+                }
+                
+                // Update API URL, preserving other fields
+                config["apiUrl"] = url.TrimEnd('/');
+                config["updatedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 
                 File.WriteAllText(ConfigFile, config.ToString());
                 ApiBaseUrl = url.TrimEnd('/');

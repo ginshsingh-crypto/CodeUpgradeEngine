@@ -53,9 +53,9 @@ namespace LOD400Uploader.Services
                 if (File.Exists(ConfigPath))
                 {
                     var json = File.ReadAllText(ConfigPath);
-                    var config = JsonConvert.DeserializeObject<dynamic>(json);
+                    var config = Newtonsoft.Json.Linq.JObject.Parse(json);
                     
-                    string sessionToken = config?.sessionToken;
+                    string sessionToken = config.Value<string>("sessionToken");
                     if (!string.IsNullOrEmpty(sessionToken))
                     {
                         SetSessionToken(sessionToken);

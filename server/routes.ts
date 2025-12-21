@@ -443,9 +443,10 @@ export async function registerRoutes(
 
       const token = await storage.createPasswordResetToken(user.id);
       
-      // Use HTTPS for production, handle reverse proxy
+      // Use X-Forwarded-Proto for correct HTTPS detection behind reverse proxies
       const host = req.get('host');
-      const protocol = host?.includes('replit') || host?.includes('deepnewbim') ? 'https' : req.protocol;
+      const forwardedProto = req.headers['x-forwarded-proto'];
+      const protocol = forwardedProto ? String(forwardedProto).split(',')[0].trim() : req.protocol;
       const resetUrl = `${protocol}://${host}/reset-password?token=${token}`;
 
       // Send password reset email
@@ -546,15 +547,14 @@ export async function registerRoutes(
 
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
-      const order = await storage.createOrder({
+      // Use transactional method to ensure atomicity
+      // If server crashes between order and sheets creation, both will be rolled back
+      const order = await storage.createOrderWithSheets({
         userId,
         sheetCount,
         totalPriceSar,
         status: "pending",
-      });
-
-      // Store individual sheet details for dispute resolution
-      await storage.createOrderSheets(order.id, sheets);
+      }, sheets);
 
       res.status(201).json(order);
     } catch (error) {
@@ -968,15 +968,14 @@ export async function registerRoutes(
 
       const totalPriceSar = sheetCount * PRICE_PER_SHEET_SAR;
 
-      const order = await storage.createOrder({
+      // Use transactional method to ensure atomicity
+      // If server crashes between order and sheets creation, both will be rolled back
+      const order = await storage.createOrderWithSheets({
         userId,
         sheetCount,
         totalPriceSar,
         status: "pending",
-      });
-
-      // Store individual sheet details for dispute resolution
-      await storage.createOrderSheets(order.id, sheets);
+      }, sheets);
 
       // TEST MODE: Skip Stripe and mark order as paid immediately
       if (process.env.TEST_MODE === "true") {

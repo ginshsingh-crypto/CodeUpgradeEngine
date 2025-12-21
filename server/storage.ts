@@ -33,6 +33,7 @@ export interface IStorage {
   
   // Order operations
   createOrder(order: InsertOrder): Promise<Order>;
+  createOrderWithSheets(order: InsertOrder, sheets: SheetInfo[]): Promise<Order>;
   getOrder(id: string): Promise<Order | undefined>;
   getOrderWithFiles(id: string): Promise<OrderWithFiles | undefined>;
   getOrdersByUserId(userId: string): Promise<OrderWithFiles[]>;
@@ -129,6 +130,28 @@ export class DatabaseStorage implements IStorage {
   async createOrder(order: InsertOrder): Promise<Order> {
     const [newOrder] = await db.insert(orders).values(order).returning();
     return newOrder;
+  }
+
+  async createOrderWithSheets(order: InsertOrder, sheets: SheetInfo[]): Promise<Order> {
+    // Use a database transaction to ensure atomicity
+    // If either order or sheets creation fails, both will be rolled back
+    return await db.transaction(async (tx) => {
+      // 1. Create the order
+      const [newOrder] = await tx.insert(orders).values(order).returning();
+
+      // 2. Create the sheet line items
+      if (sheets.length > 0) {
+        const sheetValues = sheets.map(sheet => ({
+          orderId: newOrder.id,
+          sheetElementId: sheet.sheetElementId,
+          sheetNumber: sheet.sheetNumber,
+          sheetName: sheet.sheetName,
+        }));
+        await tx.insert(orderSheets).values(sheetValues);
+      }
+
+      return newOrder;
+    });
   }
 
   async getOrder(id: string): Promise<Order | undefined> {

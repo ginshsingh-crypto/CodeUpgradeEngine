@@ -34,7 +34,25 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- ILRepack merges Newtonsoft.Json into main DLL to avoid conflicts with Revit's bundled version -->
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.18.2" />
   </ItemGroup>
+
+  <!-- ILRepack: Merge Newtonsoft.Json into main assembly to avoid DLL Hell with Revit -->
+  <Target Name="ILRepack" AfterTargets="Build" Condition="Exists('$(OutputPath)Newtonsoft.Json.dll')">
+    <ItemGroup>
+      <InputAssemblies Include="$(OutputPath)$(AssemblyName).dll" />
+      <InputAssemblies Include="$(OutputPath)Newtonsoft.Json.dll" />
+    </ItemGroup>
+    <ILRepack 
+      Parallel="true" 
+      Internalize="true" 
+      InputAssemblies="@(InputAssemblies)" 
+      TargetKind="Dll" 
+      OutputFile="$(OutputPath)$(AssemblyName).dll" />
+    <!-- Delete the now-merged Newtonsoft.Json.dll to prevent accidental copying -->
+    <Delete Files="$(OutputPath)Newtonsoft.Json.dll" />
+  </Target>
 
   <ItemGroup>
     <Reference Include="System.Net.Http" />

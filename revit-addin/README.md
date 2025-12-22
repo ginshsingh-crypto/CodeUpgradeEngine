@@ -23,12 +23,11 @@ A Revit add-in for uploading BIM models to the LOD 400 Delivery Platform for pro
 
 ## Getting Started
 
-### Step 1: Generate Your API Key
+### Step 1: Create Your Account
 
-1. Log in to the LOD 400 Delivery web dashboard
-2. Go to Settings > API Keys
-3. Click "Create New API Key"
-4. Copy and save the key - it will only be shown once
+1. Go to the LOD 400 Delivery web platform
+2. Click "Sign Up" to create a new account with your email and password
+3. Your login credentials will be the same for both the website and this add-in
 
 ### Step 2: Configure API URL
 
@@ -60,15 +59,14 @@ For different Revit versions, update the path (e.g., `Revit 2023`, `Revit 2022`,
 ### Step 4: Build the Project
 
 1. Open `LOD400Uploader.csproj` in Visual Studio 2022
-2. Restore NuGet packages (Newtonsoft.Json)
+2. Restore NuGet packages (Newtonsoft.Json will be merged into the main DLL automatically)
 3. Build the solution in Release mode
 4. The output will be in `bin\Release\net48\`
 
 ### Step 5: Install the Add-in
 
 1. Copy the following files to your Revit add-ins folder:
-   - `LOD400Uploader.dll`
-   - `Newtonsoft.Json.dll`
+   - `LOD400Uploader.dll` (includes Newtonsoft.Json merged via ILRepack)
    - `LOD400Uploader.addin`
 
 2. The add-ins folder is typically located at:
@@ -83,8 +81,8 @@ For different Revit versions, update the path (e.g., `Revit 2023`, `Revit 2022`,
 
 1. Go to the **LOD 400** tab in the ribbon
 2. Click **Upload Sheets** or **Check Status**
-3. Enter your API key when prompted
-4. The key will be saved for future sessions
+3. Enter your email and password when prompted
+4. Your credentials will be saved for future sessions
 
 ### Uploading Sheets
 
@@ -120,10 +118,10 @@ LOD400Uploader/
 ├── Models/
 │   └── Order.cs              # API data models
 ├── Services/
-│   ├── ApiService.cs         # API communication (with API key auth)
+│   ├── ApiService.cs         # API communication (with email/password auth)
 │   └── PackagingService.cs   # Model packaging (workshared safe)
 └── Views/
-    ├── LoginDialog.xaml       # API key login UI
+    ├── LoginDialog.xaml       # Email/password login UI
     ├── LoginDialog.xaml.cs
     ├── UploadDialog.xaml      # Upload UI
     ├── UploadDialog.xaml.cs
@@ -133,10 +131,10 @@ LOD400Uploader/
 
 ## Authentication
 
-The add-in uses API key authentication:
-- Generate API keys from the web dashboard
-- Keys are stored securely in `%APPDATA%\LOD400Uploader\config.json`
-- Keys can be revoked from the web dashboard at any time
+The add-in uses email/password authentication (same as the website):
+- Use your LOD 400 platform account credentials to sign in
+- Session tokens are stored securely in `%APPDATA%\LOD400Uploader\config.json`
+- Sessions expire after 30 days of inactivity
 
 ## Workshared Models
 
@@ -153,11 +151,11 @@ The add-in safely handles workshared (central) models:
 2. Verify the `.addin` manifest has the correct assembly name
 3. Check Revit's add-in manager for loading errors
 
-### API Key Invalid
+### Login Failed
 
-1. Verify you copied the complete key
-2. Generate a new key from the web dashboard
-3. Delete `%APPDATA%\LOD400Uploader\config.json` and re-enter the key
+1. Verify your email and password are correct
+2. Try logging in to the web platform to confirm your account works
+3. Delete `%APPDATA%\LOD400Uploader\config.json` and try again
 
 ### Connection Errors
 

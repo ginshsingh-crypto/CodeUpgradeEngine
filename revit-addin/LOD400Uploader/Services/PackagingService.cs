@@ -27,6 +27,12 @@ namespace LOD400Uploader.Services
         public string ZipPath { get; set; }
         public LinkCollectionResult LinkResults { get; set; }
         public string ModelCopyPath { get; set; }
+        
+        /// <summary>
+        /// Number of cloud-hosted links detected (BIM 360, ACC, etc.)
+        /// Used to warn users before upload that these files won't be included
+        /// </summary>
+        public int CloudLinksDetected => LinkResults?.CloudLinks?.Count ?? 0;
     }
 
     public class LinkToCopy
@@ -466,10 +472,19 @@ namespace LOD400Uploader.Services
                             // CRITICAL FIX: Resolve relative paths before checking existence
                             // Without this, File.Exists("..\Structure.rvt") checks relative to Revit.exe folder
                             // instead of the project folder, causing links to be silently skipped
-                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            // ALSO: Only attempt path resolution for local files - cloud models have URI paths
+                            // that Path.GetDirectoryName cannot parse (e.g., "BIM 360://Project/Model.rvt")
+                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName) && !document.IsModelInCloud)
                             {
-                                string hostFolder = Path.GetDirectoryName(document.PathName);
-                                linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                                try
+                                {
+                                    string hostFolder = Path.GetDirectoryName(document.PathName);
+                                    if (!string.IsNullOrEmpty(hostFolder))
+                                    {
+                                        linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                                    }
+                                }
+                                catch { /* Path operations failed - use original linkPath */ }
                             }
                             
                             if (File.Exists(linkPath))
@@ -553,10 +568,18 @@ namespace LOD400Uploader.Services
                             }
                             
                             // CRITICAL FIX: Resolve relative paths before checking existence
-                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName))
+                            // Only attempt path resolution for local files - cloud models have URI paths
+                            if (!Path.IsPathRooted(linkPath) && !string.IsNullOrEmpty(document.PathName) && !document.IsModelInCloud)
                             {
-                                string hostFolder = Path.GetDirectoryName(document.PathName);
-                                linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                                try
+                                {
+                                    string hostFolder = Path.GetDirectoryName(document.PathName);
+                                    if (!string.IsNullOrEmpty(hostFolder))
+                                    {
+                                        linkPath = Path.GetFullPath(Path.Combine(hostFolder, linkPath));
+                                    }
+                                }
+                                catch { /* Path operations failed - use original linkPath */ }
                             }
                             
                             if (File.Exists(linkPath))

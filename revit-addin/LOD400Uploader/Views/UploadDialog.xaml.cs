@@ -383,6 +383,41 @@ namespace LOD400Uploader.Views
                     });
                 });
 
+                // Check for cloud links and warn user if model depends on them
+                // Use Dispatcher.Invoke to ensure MessageBox runs on the UI thread (required for WPF/Revit)
+                if (packageResult.CloudLinksDetected > 0)
+                {
+                    bool userCancelled = false;
+                    Dispatcher.Invoke(() =>
+                    {
+                        var cloudWarningResult = MessageBox.Show(
+                            $"This model contains {packageResult.CloudLinksDetected} cloud-hosted link(s) (BIM 360/ACC) that cannot be packaged.\n\n" +
+                            "These links will be recorded in the manifest but the linked files will NOT be included in the upload. " +
+                            "When we open your model, the cloud links will appear as missing.\n\n" +
+                            "Options:\n" +
+                            "• Continue anyway if cloud links are not needed for LOD 400 annotations\n" +
+                            "• Cancel and use Revit's 'Bind Link' or 'eTransmit' to include them locally\n\n" +
+                            "Do you want to continue with the upload?",
+                            "Cloud Links Detected",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning);
+
+                        if (cloudWarningResult != MessageBoxResult.Yes)
+                        {
+                            userCancelled = true;
+                        }
+                    });
+
+                    if (userCancelled)
+                    {
+                        _packagingService.CleanupAll();
+                        HideProgress();
+                        UploadButton.IsEnabled = true;
+                        CancelButton.IsEnabled = true;
+                        return;
+                    }
+                }
+
                 // Phase 3: TransmissionData operations (MUST run on main thread)
                 // This uses Revit API for re-pathing links - calling from background thread would crash
                 _packagingService.RepathLinksOnMainThread(packageResult, (progress, message) =>

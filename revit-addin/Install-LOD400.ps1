@@ -22,9 +22,10 @@ if (-not $ScriptDir) {
 }
 
 # Required files
+# Note: Newtonsoft.Json.dll is now merged into LOD400Uploader.dll via ILRepack
+# to avoid DLL conflicts with Revit's bundled version
 $RequiredFiles = @(
     "LOD400Uploader.dll",
-    "Newtonsoft.Json.dll",
     "LOD400Uploader.addin"
 )
 

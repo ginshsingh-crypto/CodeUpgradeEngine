@@ -190,7 +190,7 @@ export async function sendContactFormEmail(
   try {
     const { client } = await getUncachableResendClient();
     
-    const adminEmail = process.env.ADMIN_EMAIL || 'ginshsingh@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL; // Required - set via environment variable
     const verifiedFromEmail = 'LOD 400 Platform <noreply@deepnewbim.com>';
     
     const { data, error } = await client.emails.send({

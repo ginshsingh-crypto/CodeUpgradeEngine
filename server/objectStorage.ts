@@ -117,7 +117,7 @@ export class ObjectStorageService {
       bucketName,
       objectName,
       method: "PUT",
-      ttlSec: 3600, // 1 hour
+      ttlSec: 14400, // 4 hours - allows large files on slow connections
       contentType: "application/zip",
     });
   }

@@ -9,7 +9,11 @@ import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq, ne } from "drizzle-orm";
 
-const SUPER_ADMIN_EMAIL = process.env.ADMIN_EMAIL || "ginshsingh@gmail.com";
+// Require ADMIN_EMAIL to be explicitly set - no hardcoded fallback for security
+if (!process.env.ADMIN_EMAIL) {
+  throw new Error("FATAL: ADMIN_EMAIL environment variable must be set");
+}
+const SUPER_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
 async function ensureSuperAdmin() {
   try {

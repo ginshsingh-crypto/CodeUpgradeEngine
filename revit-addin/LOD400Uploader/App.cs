@@ -103,7 +103,17 @@ namespace LOD400Uploader
                 }
             }
             
-            return "https://deepnewbim.com";
+            // Fallback: construct URL from Replit environment if available
+            // This ensures the add-in works even without manual configuration
+            string replSlug = Environment.GetEnvironmentVariable("REPL_SLUG");
+            string replOwner = Environment.GetEnvironmentVariable("REPL_OWNER");
+            if (!string.IsNullOrEmpty(replSlug) && !string.IsNullOrEmpty(replOwner))
+            {
+                return $"https://{replSlug}.{replOwner}.repl.co";
+            }
+            
+            // Last resort: use the deployed Replit app URL
+            return "https://lod-400-delivery-platform.replit.app";
         }
         
         public static void SaveApiUrl(string url)

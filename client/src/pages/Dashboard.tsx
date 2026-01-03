@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -5,22 +6,24 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { StatsCard } from "@/components/StatsCard";
 import { OrdersTable } from "@/components/OrdersTable";
 import { OrderDetailModal } from "@/components/OrderDetailModal";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   FileBox,
   Clock,
-  CheckCircle,
   DollarSign,
   Loader2,
 } from "lucide-react";
 import type { OrderWithFiles } from "@shared/schema";
+import { CompanyContextSwitcher } from "@/components/CompanyContextSwitcher";
+import { useCompany } from "@/lib/companyContext";
 
 type OrderStatus = "pending" | "paid" | "uploaded" | "processing" | "complete";
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const { selectedCompany } = useCompany();
   const [selectedOrder, setSelectedOrder] = useState<OrderWithFiles | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
 
@@ -101,7 +104,10 @@ export default function Dashboard() {
             </p>
           </div>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <CompanyContextSwitcher />
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="flex-1 overflow-auto p-4 md:p-6 space-y-6">

@@ -1,4 +1,24 @@
-import { useState } from "react";
+import { CompanyContextSwitcher } from "@/components/CompanyContextSwitcher";
+import { BalanceDisplay } from "@/components/BalanceDisplay";
+
+// ... imports
+
+<header className="flex items-center justify-between gap-4 border-b px-4 py-3 md:px-6">
+  <div className="flex items-center gap-3">
+    <SidebarTrigger data-testid="button-sidebar-toggle" />
+    <div>
+      <h1 className="text-lg font-semibold">My Orders</h1>
+      <p className="text-sm text-muted-foreground">
+        Track your LOD 400 upgrade orders
+      </p>
+    </div>
+  </div>
+  <div className="flex items-center gap-2">
+    <BalanceDisplay />
+    <CompanyContextSwitcher />
+    <ThemeToggle />
+  </div>
+</header>
 import { useQuery } from "@tanstack/react-query";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -109,7 +129,7 @@ export default function ClientDashboard() {
               </div>
               <h3 className="text-lg font-semibold mb-2">No orders yet</h3>
               <p className="text-sm text-muted-foreground max-w-sm">
-                Create your first order using the Revit add-in. Select your sheets, 
+                Create your first order using the Revit add-in. Select your sheets,
                 pay securely, and upload your model for LOD 400 upgrade.
               </p>
               <Button variant="outline" className="mt-4" asChild>

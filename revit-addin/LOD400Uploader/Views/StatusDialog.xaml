@@ -5,15 +5,16 @@
         Height="500" Width="800"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip"
-        Background="#F5F5F5">
+        Background="#111827">
     
     <Window.Resources>
         <Style TargetType="Button" x:Key="ActionButton">
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#E5E7EB"/>
+            <Setter Property="BorderBrush" Value="#374151"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -30,21 +31,22 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#F3F4F6"/>
+                    <Setter Property="Background" Value="#1F2937"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
 
         <Style TargetType="Button" x:Key="PrimaryButton" BasedOn="{StaticResource ActionButton}">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#F59E0B"/>
+            <Setter Property="Foreground" Value="Black"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1D4ED8"/>
+                    <Setter Property="Background" Value="#D97706"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#94A3B8"/>
+                    <Setter Property="Background" Value="#4B5563"/>
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -59,11 +61,11 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="White" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="24,20">
+        <Border Grid.Row="0" Background="#111827" BorderBrush="#374151" BorderThickness="0,0,0,1" Padding="24,20">
             <Grid>
                 <StackPanel>
-                    <TextBlock Text="Order Status" FontSize="24" FontWeight="Bold" Foreground="#111827"/>
-                    <TextBlock Text="Track your orders and download deliverables" FontSize="14" Foreground="#6B7280" Margin="0,4,0,0"/>
+                    <TextBlock Text="Order Status" FontSize="24" FontWeight="Bold" Foreground="#F9FAFB"/>
+                    <TextBlock Text="Track your orders and download deliverables" FontSize="14" Foreground="#9CA3AF" Margin="0,4,0,0"/>
                 </StackPanel>
                 <Button Content="Refresh" HorizontalAlignment="Right" VerticalAlignment="Top" 
                         Style="{StaticResource ActionButton}" Click="RefreshButton_Click"/>
@@ -71,8 +73,8 @@
         </Border>
 
         <Grid Grid.Row="1" Margin="24,16">
-            <Border Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8">
-                <ListView x:Name="OrdersListView" BorderThickness="0" HorizontalContentAlignment="Stretch">
+            <Border Background="#1F2937" BorderBrush="#374151" BorderThickness="1" CornerRadius="8">
+                <ListView x:Name="OrdersListView" BorderThickness="0" Background="Transparent" Foreground="#E5E7EB" HorizontalContentAlignment="Stretch">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="Order ID" Width="120" DisplayMemberBinding="{Binding DisplayId}"/>
@@ -103,19 +105,19 @@
                 </ListView>
             </Border>
             
-            <Grid x:Name="LoadingOverlay" Background="#80FFFFFF" Visibility="Visible">
+            <Grid x:Name="LoadingOverlay" Background="#CC111827" Visibility="Visible">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="Loading orders..." FontSize="16" Foreground="#374151"/>
+                    <TextBlock Text="Loading orders..." FontSize="16" Foreground="#F9FAFB"/>
                 </StackPanel>
             </Grid>
             
             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
-                <TextBlock Text="No orders found" FontSize="18" FontWeight="SemiBold" Foreground="#374151" HorizontalAlignment="Center"/>
-                <TextBlock Text="Upload sheets to create your first order." FontSize="14" Foreground="#6B7280" Margin="0,8,0,0"/>
+                <TextBlock Text="No orders found" FontSize="18" FontWeight="SemiBold" Foreground="#E5E7EB" HorizontalAlignment="Center"/>
+                <TextBlock Text="Upload sheets to create your first order." FontSize="14" Foreground="#9CA3AF" Margin="0,8,0,0"/>
             </StackPanel>
         </Grid>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="0,1,0,0" Padding="24,16">
+        <Border Grid.Row="2" Background="#111827" BorderBrush="#374151" BorderThickness="0,1,0,0" Padding="24,16">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Close" Style="{StaticResource ActionButton}" Width="80" Click="CloseButton_Click"/>
             </StackPanel>

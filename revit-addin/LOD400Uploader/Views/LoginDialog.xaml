@@ -5,12 +5,12 @@
         Height="380" Width="450"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Background="#F5F5F5">
+        Background="#111827">
     
     <Window.Resources>
         <Style TargetType="Button" x:Key="PrimaryButton">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#F59E0B"/>
+            <Setter Property="Foreground" Value="Black"/>
             <Setter Property="Padding" Value="24,12"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -29,21 +29,22 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1D4ED8"/>
+                    <Setter Property="Background" Value="#D97706"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#94A3B8"/>
+                    <Setter Property="Background" Value="#4B5563"/>
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
         
         <Style TargetType="TextBlock" x:Key="LinkText">
-            <Setter Property="Foreground" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="#F59E0B"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="TextDecorations" Value="Underline"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Foreground" Value="#1D4ED8"/>
+                    <Setter Property="Foreground" Value="#D97706"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -59,27 +60,29 @@
         </Grid.RowDefinitions>
         
         <StackPanel Grid.Row="0">
-            <TextBlock Text="LOD 400 Delivery" FontSize="24" FontWeight="Bold" Foreground="#111827"/>
-            <TextBlock Text="Sign in to your account" FontSize="14" Foreground="#6B7280" Margin="0,8,0,0"/>
+            <TextBlock Text="LOD 400 Delivery" FontSize="24" FontWeight="Bold" Foreground="#F9FAFB"/>
+            <TextBlock Text="Sign in to your account" FontSize="14" Foreground="#9CA3AF" Margin="0,8,0,0"/>
         </StackPanel>
         
         <StackPanel Grid.Row="1" Margin="0,24,0,0">
-            <TextBlock Text="Email" FontSize="13" FontWeight="SemiBold" Foreground="#374151" Margin="0,0,0,8"/>
+            <TextBlock Text="Email" FontSize="13" FontWeight="SemiBold" Foreground="#D1D5DB" Margin="0,0,0,8"/>
             <TextBox x:Name="EmailTextBox" FontSize="14" Padding="12,10" 
-                     Background="White" BorderBrush="#D1D5DB" BorderThickness="1"/>
+                     Background="#1F2937" Foreground="White" BorderBrush="#374151" BorderThickness="1"
+                     CaretBrush="White"/>
         </StackPanel>
         
         <StackPanel Grid.Row="2" Margin="0,16,0,0">
-            <TextBlock Text="Password" FontSize="13" FontWeight="SemiBold" Foreground="#374151" Margin="0,0,0,8"/>
+            <TextBlock Text="Password" FontSize="13" FontWeight="SemiBold" Foreground="#D1D5DB" Margin="0,0,0,8"/>
             <PasswordBox x:Name="PasswordBox" FontSize="14" Padding="12,10" 
-                         Background="White" BorderBrush="#D1D5DB" BorderThickness="1"/>
-            <TextBlock x:Name="ErrorText" Text="" FontSize="12" Foreground="#DC2626" Margin="0,8,0,0" 
+                         Background="#1F2937" Foreground="White" BorderBrush="#374151" BorderThickness="1"
+                         CaretBrush="White"/>
+            <TextBlock x:Name="ErrorText" Text="" FontSize="12" Foreground="#EF4444" Margin="0,8,0,0" 
                        Visibility="Collapsed"/>
         </StackPanel>
         
         <StackPanel Grid.Row="3" Margin="0,16,0,0">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Don't have an account? " FontSize="12" Foreground="#6B7280"/>
+                <TextBlock Text="Don't have an account? " FontSize="12" Foreground="#9CA3AF"/>
                 <TextBlock x:Name="SignUpLink" Text="Sign up" FontSize="12" Style="{StaticResource LinkText}"
                            MouseDown="SignUpLink_MouseDown"/>
             </StackPanel>
@@ -90,8 +93,8 @@
         </StackPanel>
         
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="Cancel" Padding="16,10" Background="White" Foreground="#374151"
-                    BorderBrush="#D1D5DB" BorderThickness="1" Margin="0,0,12,0" Click="CancelButton_Click"/>
+            <Button Content="Cancel" Padding="16,10" Background="Transparent" Foreground="#D1D5DB"
+                    BorderBrush="#374151" BorderThickness="1" Margin="0,0,12,0" Click="CancelButton_Click"/>
             <Button x:Name="LoginButton" Content="Sign In" Style="{StaticResource PrimaryButton}" 
                     Click="LoginButton_Click"/>
         </StackPanel>

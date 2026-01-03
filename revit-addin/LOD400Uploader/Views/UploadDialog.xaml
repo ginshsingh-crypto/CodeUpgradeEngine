@@ -5,12 +5,12 @@
         Height="550" Width="700"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip"
-        Background="#F5F5F5">
+        Background="#111827">
     
     <Window.Resources>
         <Style TargetType="Button" x:Key="PrimaryButton">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#F59E0B"/>
+            <Setter Property="Foreground" Value="Black"/>
             <Setter Property="Padding" Value="24,12"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -29,20 +29,21 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1D4ED8"/>
+                    <Setter Property="Background" Value="#D97706"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#94A3B8"/>
+                    <Setter Property="Background" Value="#4B5563"/>
+                    <Setter Property="Foreground" Value="#9CA3AF"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
         
         <Style TargetType="Button" x:Key="SecondaryButton">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#E5E7EB"/>
             <Setter Property="Padding" Value="24,12"/>
             <Setter Property="FontSize" Value="14"/>
-            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderBrush" Value="#374151"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
@@ -60,7 +61,7 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#F3F4F6"/>
+                    <Setter Property="Background" Value="#1F2937"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -74,11 +75,11 @@
         </Grid.RowDefinitions>
         
         <!-- Header -->
-        <Border Grid.Row="0" Background="White" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="24,20">
+        <Border Grid.Row="0" Background="#111827" BorderBrush="#374151" BorderThickness="0,0,0,1" Padding="24,20">
             <StackPanel>
-                <TextBlock Text="Select Sheets" FontSize="24" FontWeight="Bold" Foreground="#111827"/>
+                <TextBlock Text="Select Sheets" FontSize="24" FontWeight="Bold" Foreground="#F9FAFB"/>
                 <TextBlock Text="Choose the sheets to upload for LOD 400 upgrade" 
-                           FontSize="14" Foreground="#6B7280" Margin="0,8,0,0"/>
+                           FontSize="14" Foreground="#9CA3AF" Margin="0,8,0,0"/>
             </StackPanel>
         </Border>
         
@@ -90,14 +91,14 @@
             </Grid.RowDefinitions>
             
             <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <CheckBox x:Name="SelectAllCheckBox" Content="Select All" FontSize="14" 
+                <CheckBox x:Name="SelectAllCheckBox" Content="Select All" FontSize="14" Foreground="#E5E7EB"
                           VerticalAlignment="Center" Click="SelectAllCheckBox_Click"/>
                 <TextBlock x:Name="SelectedCountText" Text="0 sheets selected" 
-                           FontSize="14" Foreground="#6B7280" Margin="20,0,0,0" VerticalAlignment="Center"/>
+                           FontSize="14" Foreground="#9CA3AF" Margin="20,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
             
-            <Border Grid.Row="1" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8">
-                <ListView x:Name="SheetListView" BorderThickness="0" 
+            <Border Grid.Row="1" Background="#1F2937" BorderBrush="#374151" BorderThickness="1" CornerRadius="8">
+                <ListView x:Name="SheetListView" BorderThickness="0" Background="Transparent" Foreground="#E5E7EB"
                           SelectionMode="Multiple" SelectionChanged="SheetListView_SelectionChanged">
                     <ListView.View>
                         <GridView>
@@ -119,7 +120,7 @@
         </Grid>
         
         <!-- Footer -->
-        <Border Grid.Row="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="0,1,0,0" Padding="24,16">
+        <Border Grid.Row="2" Background="#111827" BorderBrush="#374151" BorderThickness="0,1,0,0" Padding="24,16">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -129,13 +130,13 @@
                 
                 <!-- Progress (hidden by default) -->
                 <StackPanel x:Name="ProgressPanel" Grid.Column="0" Visibility="Collapsed" VerticalAlignment="Center">
-                    <TextBlock x:Name="ProgressText" Text="Preparing..." FontSize="14" Foreground="#6B7280"/>
+                    <TextBlock x:Name="ProgressText" Text="Preparing..." FontSize="14" Foreground="#9CA3AF"/>
                     <ProgressBar x:Name="ProgressBar" Height="6" Margin="0,8,16,0" 
-                                 Background="#E5E7EB" Foreground="#2563EB"/>
+                                 Background="#374151" Foreground="#F59E0B"/>
                 </StackPanel>
                 
                 <!-- Summary when not uploading (hidden when progress is shown) -->
-                <TextBlock x:Name="SummaryText" Grid.Column="0" VerticalAlignment="Center" FontSize="14" Foreground="#6B7280">
+                <TextBlock x:Name="SummaryText" Grid.Column="0" VerticalAlignment="Center" FontSize="14" Foreground="#9CA3AF">
                     <Run x:Name="SheetCountRun" Text="0"/> sheets selected
                 </TextBlock>
                 

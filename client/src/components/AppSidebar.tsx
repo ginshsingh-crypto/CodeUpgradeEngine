@@ -22,6 +22,7 @@ import {
   Building2,
   Users,
   Download,
+  CreditCard,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -39,6 +40,16 @@ const adminNavItems = [
     title: "Clients",
     url: "/clients",
     icon: Users,
+  },
+  {
+    title: "Companies",
+    url: "/companies",
+    icon: Building2,
+  },
+  {
+    title: "Refunds",
+    url: "/refunds",
+    icon: CreditCard,
   },
   {
     title: "Settings",
@@ -93,7 +104,7 @@ export function AppSidebar() {
           </div>
         </Link>
       </SidebarHeader>
-      
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
@@ -117,7 +128,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      
+
       <SidebarFooter className="border-t border-sidebar-border p-4">
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9">

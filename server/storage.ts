@@ -18,6 +18,11 @@ import {
   type AddinSession,
   type OrderSheet,
   type SheetInfo,
+  type Company,
+  type CompanyMember,
+  type InsertCompanyMember,
+  companies,
+  companyMembers,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, lt } from "drizzle-orm";
@@ -30,7 +35,7 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
   getUsersWithOrderStats(): Promise<Array<User & { orderCount: number; totalSpent: number }>>;
-  
+
   // Order operations
   createOrder(order: InsertOrder): Promise<Order>;
   createOrderWithSheets(order: InsertOrder, sheets: SheetInfo[]): Promise<Order>;
@@ -40,39 +45,48 @@ export interface IStorage {
   getAllOrders(): Promise<OrderWithFiles[]>;
   updateOrder(id: string, data: Partial<Order>): Promise<Order | undefined>;
   updateOrderStatus(id: string, status: Order["status"]): Promise<Order | undefined>;
-  
+
   // File operations
   createFile(file: InsertFile): Promise<FileRecord>;
   getFile(id: string): Promise<FileRecord | undefined>;
   getFilesByOrderId(orderId: string): Promise<FileRecord[]>;
-  
+
   // Order sheet operations
   createOrderSheets(orderId: string, sheets: SheetInfo[]): Promise<OrderSheet[]>;
   getOrderSheets(orderId: string): Promise<OrderSheet[]>;
-  
+
   // API Key operations
   createApiKey(userId: string, name: string): Promise<{ apiKey: ApiKey; rawKey: string }>;
   getApiKeysByUserId(userId: string): Promise<ApiKey[]>;
   validateApiKey(rawKey: string): Promise<User | null>;
   deleteApiKey(id: string, userId: string): Promise<boolean>;
   updateApiKeyLastUsed(id: string): Promise<void>;
-  
+
   // Password-based auth operations
   getUserByEmail(email: string): Promise<User | null>;
   createUserWithPassword(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
   validateUserPassword(email: string, password: string): Promise<User | null>;
   setUserPassword(userId: string, passwordHash: string): Promise<User | null>;
   changeUserPassword(userId: string, currentPassword: string, newPasswordHash: string): Promise<{ success: boolean; error?: string }>;
-  
+
   // Add-in session operations
   createAddinSession(userId: string, rawToken: string, deviceLabel?: string): Promise<{ session: AddinSession; rawToken: string }>;
   validateAddinSession(rawToken: string): Promise<User | null>;
   deleteAddinSession(rawToken: string): Promise<boolean>;
-  
+
   // Password reset token operations
   createPasswordResetToken(userId: string): Promise<string>;
   validatePasswordResetToken(rawToken: string): Promise<User | null>;
   usePasswordResetToken(rawToken: string, newPasswordHash: string): Promise<boolean>;
+
+  // Company operations
+  createCompany(name: string, ownerId: string): Promise<Company>;
+  getCompany(companyId: string): Promise<Company | undefined>;
+  getCompanyMembers(companyId: string): Promise<CompanyMember[]>;
+  addCompanyMember(companyId: string, email: string, role?: string): Promise<void>; // Simplified to use email logic internally
+  removeCompanyMember(companyId: string, userId: string): Promise<void>;
+  updateCompanyBalance(companyId: string, amount: number): Promise<void>;
+  getPendingRefundRequests(): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -122,7 +136,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.isAdmin, 0))
       .groupBy(users.id)
       .orderBy(desc(users.createdAt));
-    
+
     return result;
   }
 
@@ -242,7 +256,7 @@ export class DatabaseStorage implements IStorage {
   async updateOrderStatus(id: string, status: Order["status"]): Promise<Order | undefined> {
     const now = new Date();
     const updateData: Partial<Order> = { status, updatedAt: now };
-    
+
     if (status === "paid") {
       updateData.paidAt = now;
     } else if (status === "uploaded") {
@@ -277,14 +291,14 @@ export class DatabaseStorage implements IStorage {
   // Order sheet operations
   async createOrderSheets(orderId: string, sheets: SheetInfo[]): Promise<OrderSheet[]> {
     if (sheets.length === 0) return [];
-    
+
     const values = sheets.map(sheet => ({
       orderId,
       sheetElementId: sheet.sheetElementId,
       sheetNumber: sheet.sheetNumber,
       sheetName: sheet.sheetName,
     }));
-    
+
     const created = await db.insert(orderSheets).values(values).returning();
     return created;
   }
@@ -323,15 +337,15 @@ export class DatabaseStorage implements IStorage {
 
   async validateApiKey(rawKey: string): Promise<User | null> {
     const keyHash = this.hashApiKey(rawKey);
-    
+
     const [result] = await db.select()
       .from(apiKeys)
       .where(eq(apiKeys.keyHash, keyHash));
-    
+
     if (!result) return null;
 
     await this.updateApiKeyLastUsed(result.id);
-    
+
     const user = await this.getUser(result.userId);
     return user || null;
   }
@@ -445,11 +459,11 @@ export class DatabaseStorage implements IStorage {
 
   async validateAddinSession(rawToken: string): Promise<User | null> {
     const tokenHash = this.hashToken(rawToken);
-    
+
     const [session] = await db.select()
       .from(addinSessions)
       .where(eq(addinSessions.tokenHash, tokenHash));
-    
+
     if (!session) return null;
 
     // Check if session has expired
@@ -458,18 +472,18 @@ export class DatabaseStorage implements IStorage {
       await db.delete(addinSessions).where(eq(addinSessions.id, session.id));
       return null;
     }
-    
+
     const user = await this.getUser(session.userId);
     return user || null;
   }
 
   async deleteAddinSession(rawToken: string): Promise<boolean> {
     const tokenHash = this.hashToken(rawToken);
-    
+
     const result = await db.delete(addinSessions)
       .where(eq(addinSessions.tokenHash, tokenHash))
       .returning();
-    
+
     return result.length > 0;
   }
 
@@ -490,29 +504,29 @@ export class DatabaseStorage implements IStorage {
 
   async validatePasswordResetToken(rawToken: string): Promise<User | null> {
     const tokenHash = this.hashToken(rawToken);
-    
+
     const [token] = await db.select()
       .from(passwordResetTokens)
       .where(eq(passwordResetTokens.tokenHash, tokenHash));
-    
+
     if (!token) return null;
 
     // Check if token has expired or been used
     if (new Date() > token.expiresAt || token.usedAt) {
       return null;
     }
-    
+
     const user = await this.getUser(token.userId);
     return user || null;
   }
 
   async usePasswordResetToken(rawToken: string, newPasswordHash: string): Promise<boolean> {
     const tokenHash = this.hashToken(rawToken);
-    
+
     const [token] = await db.select()
       .from(passwordResetTokens)
       .where(eq(passwordResetTokens.tokenHash, tokenHash));
-    
+
     if (!token || new Date() > token.expiresAt || token.usedAt) {
       return false;
     }
@@ -527,6 +541,88 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, token.userId));
 
     return true;
+  }
+
+  // Company operations
+  async createCompany(name: string, ownerId: string): Promise<Company> {
+    return await db.transaction(async (tx) => {
+      // Create company
+      const [company] = await tx.insert(companies).values({ name }).returning();
+
+      // Add owner as admin member
+      await tx.insert(companyMembers).values({
+        companyId: company.id,
+        userId: ownerId,
+        role: "admin",
+      });
+
+      return company;
+    });
+  }
+
+  async getCompany(companyId: string): Promise<Company | undefined> {
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+    return company;
+  }
+
+  async getCompanyMembers(companyId: string): Promise<CompanyMember[]> {
+    return await db.select()
+      .from(companyMembers)
+      .where(eq(companyMembers.companyId, companyId))
+      .orderBy(desc(companyMembers.createdAt));
+  }
+
+  async addCompanyMember(companyId: string, email: string, role: string = "member"): Promise<void> {
+    const user = await this.getUserByEmail(email);
+    if (!user) {
+      throw new Error(`User with email ${email} not found`);
+    }
+
+    // Check if already a member
+    const [existing] = await db.select()
+      .from(companyMembers)
+      .where(and(
+        eq(companyMembers.companyId, companyId),
+        eq(companyMembers.userId, user.id)
+      ));
+
+    if (existing) {
+      throw new Error("User is already a member of this company");
+    }
+
+    await db.insert(companyMembers).values({
+      companyId,
+      userId: user.id,
+      role,
+    });
+  }
+
+  async removeCompanyMember(companyId: string, userId: string): Promise<void> {
+    await db.delete(companyMembers)
+      .where(and(
+        eq(companyMembers.companyId, companyId),
+        eq(companyMembers.userId, userId)
+      ));
+  }
+
+  async updateCompanyBalance(companyId: string, amount: number): Promise<void> {
+    await db.update(companies)
+      .set({
+        balanceSar: sql`${companies.balanceSar} + ${amount}`,
+        updatedAt: new Date()
+      })
+      .where(eq(companies.id, companyId));
+  }
+
+  async getPendingRefundRequests(): Promise<any[]> {
+    return await db.query.balanceTransactions.findMany({
+      where: (t, { and, eq }) => and(eq(t.type, "refund_request"), eq(t.status, "pending")),
+      with: {
+        user: true,
+        order: true,
+      },
+      orderBy: (t, { desc }) => [desc(t.createdAt)]
+    });
   }
 }
 

@@ -56,7 +56,7 @@ async function initStripe() {
 
   try {
     log('Initializing Stripe schema...', 'stripe');
-    await runMigrations({ 
+    await runMigrations({
       databaseUrl,
       schema: 'stripe'
     });
@@ -69,7 +69,7 @@ async function initStripe() {
     const webhookResult = await stripeSync.findOrCreateManagedWebhook(
       `${webhookBaseUrl}/api/stripe/webhook`
     );
-    
+
     if (webhookResult?.webhook?.url) {
       log(`Webhook configured: ${webhookResult.webhook.url}`, 'stripe');
     } else {
@@ -180,7 +180,7 @@ async function initStripe() {
     }
 
     const port = parseInt(process.env.PORT || "5000", 10);
-    
+
     // Start listening FIRST, then initialize external services
     httpServer.listen(
       {
@@ -190,15 +190,22 @@ async function initStripe() {
       },
       () => {
         log(`serving on port ${port}`);
-        
+
         // Ensure super admin is configured
         ensureSuperAdmin().catch((err) => {
           log(`Admin setup error: ${err.message}`, 'auth');
         });
-        
+
         // Initialize Stripe in the background AFTER server is listening
         initStripe().catch((err) => {
           log(`Stripe initialization error: ${err.message}`, 'stripe');
+        });
+
+        // Start cron jobs
+        import("./cron").then(({ startOrderCleanupJob }) => {
+          startOrderCleanupJob();
+        }).catch(err => {
+          log(`Failed to start cron jobs: ${err.message}`, 'cron');
         });
       },
     );

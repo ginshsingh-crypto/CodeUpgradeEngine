@@ -8,6 +8,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
+import { CompanyProvider } from "@/lib/companyContext";
+
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -51,6 +53,15 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+import CompanyManagement from "@/pages/CompanyManagement";
+import AdminRefunds from "@/pages/AdminRefunds";
+
+// ... existing imports
+
+import PaymentPage from "@/pages/PaymentPage";
+
+// ... imports
+
 function AdminRouter() {
   return (
     <AuthenticatedLayout>
@@ -58,7 +69,10 @@ function AdminRouter() {
         <Route path="/" component={Dashboard} />
         <Route path="/orders" component={Orders} />
         <Route path="/clients" component={Clients} />
+        <Route path="/companies" component={CompanyManagement} />
+        <Route path="/refunds" component={AdminRefunds} />
         <Route path="/settings" component={Settings} />
+        <Route path="/payment/:orderId" component={PaymentPage} />
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>
@@ -72,6 +86,7 @@ function ClientRouter() {
         <Route path="/" component={ClientDashboard} />
         <Route path="/downloads" component={Downloads} />
         <Route path="/settings" component={Settings} />
+        <Route path="/payment/:orderId" component={PaymentPage} />
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>
@@ -113,10 +128,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light">
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <CompanyProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </CompanyProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

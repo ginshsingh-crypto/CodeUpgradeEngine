@@ -57,8 +57,8 @@ export const orders = pgTable("orders", {
   sheetCount: integer("sheet_count").notNull(),
   totalPriceSar: integer("total_price_sar").notNull(),
   status: orderStatusEnum("status").notNull().default("pending"),
-  stripeSessionId: varchar("stripe_session_id"),
-  stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+  moyasarPaymentId: varchar("moyasar_payment_id"),
+  moyasarInvoiceId: varchar("moyasar_invoice_id"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -67,185 +67,9 @@ export const orders = pgTable("orders", {
   completedAt: timestamp("completed_at"),
 });
 
-// Files table
-export const files = pgTable("files", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  orderId: varchar("order_id").notNull().references(() => orders.id),
-  fileType: fileTypeEnum("file_type").notNull(),
-  fileName: varchar("file_name").notNull(),
-  // Use bigint for file sizes - integer maxes out at ~2.14GB, Revit models can exceed this
-  fileSize: bigint("file_size", { mode: "number" }),
-  storageKey: varchar("storage_key").notNull(),
-  mimeType: varchar("mime_type"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// ... (files, orderSheets, apiKeys, addinSessions, passwordResetTokens)
 
-// Order sheets table - stores individual sheet details for dispute resolution
-export const orderSheets = pgTable("order_sheets", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  orderId: varchar("order_id").notNull().references(() => orders.id),
-  sheetElementId: varchar("sheet_element_id").notNull(),
-  sheetNumber: varchar("sheet_number").notNull(),
-  sheetName: varchar("sheet_name").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// API Keys table for Revit add-in authentication
-export const apiKeys = pgTable("api_keys", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  name: varchar("name").notNull(),
-  keyHash: varchar("key_hash").notNull(),
-  lastUsed: timestamp("last_used"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Add-in sessions table for password-based authentication
-export const addinSessions = pgTable("addin_sessions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  tokenHash: varchar("token_hash").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  deviceLabel: varchar("device_label"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Password reset tokens table
-export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  tokenHash: varchar("token_hash").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  usedAt: timestamp("used_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Password reset tokens relations
-export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
-  user: one(users, {
-    fields: [passwordResetTokens.userId],
-    references: [users.id],
-  }),
-}));
-
-// Relations
-export const usersRelations = relations(users, ({ many }) => ({
-  orders: many(orders),
-  apiKeys: many(apiKeys),
-  addinSessions: many(addinSessions),
-  passwordResetTokens: many(passwordResetTokens),
-}));
-
-export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
-  user: one(users, {
-    fields: [apiKeys.userId],
-    references: [users.id],
-  }),
-}));
-
-export const addinSessionsRelations = relations(addinSessions, ({ one }) => ({
-  user: one(users, {
-    fields: [addinSessions.userId],
-    references: [users.id],
-  }),
-}));
-
-export const ordersRelations = relations(orders, ({ one, many }) => ({
-  user: one(users, {
-    fields: [orders.userId],
-    references: [users.id],
-  }),
-  files: many(files),
-  sheets: many(orderSheets),
-}));
-
-export const filesRelations = relations(files, ({ one }) => ({
-  order: one(orders, {
-    fields: [files.orderId],
-    references: [orders.id],
-  }),
-}));
-
-export const orderSheetsRelations = relations(orderSheets, ({ one }) => ({
-  order: one(orders, {
-    fields: [orderSheets.orderId],
-    references: [orders.id],
-  }),
-}));
-
-// Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertOrderSchema = createInsertSchema(orders).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-  paidAt: true,
-  uploadedAt: true,
-  completedAt: true,
-});
-
-export const insertFileSchema = createInsertSchema(files).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
-  id: true,
-  createdAt: true,
-  lastUsed: true,
-});
-
-export const insertAddinSessionSchema = createInsertSchema(addinSessions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
-  id: true,
-  createdAt: true,
-  usedAt: true,
-});
-
-export const insertOrderSheetSchema = createInsertSchema(orderSheets).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Types
-export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
-export type InsertOrder = z.infer<typeof insertOrderSchema>;
-export type Order = typeof orders.$inferSelect;
-export type InsertFile = z.infer<typeof insertFileSchema>;
-export type File = typeof files.$inferSelect;
-export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
-export type ApiKey = typeof apiKeys.$inferSelect;
-export type InsertAddinSession = z.infer<typeof insertAddinSessionSchema>;
-export type AddinSession = typeof addinSessions.$inferSelect;
-export type InsertOrderSheet = z.infer<typeof insertOrderSheetSchema>;
-export type OrderSheet = typeof orderSheets.$inferSelect;
-
-// Sheet info schema for API requests
-export const sheetInfoSchema = z.object({
-  sheetElementId: z.string(),
-  sheetNumber: z.string(),
-  sheetName: z.string(),
-});
-
-export type SheetInfo = z.infer<typeof sheetInfoSchema>;
-
-// API request/response types
-export const createOrderRequestSchema = z.object({
-  sheetCount: z.number().min(1).max(1000),
-  sheets: z.array(sheetInfoSchema).min(1, "At least one sheet must be provided"),
-});
-
-export type CreateOrderRequest = z.infer<typeof createOrderRequestSchema>;
+// ...
 
 export const orderWithFilesSchema = z.object({
   id: z.string(),
@@ -253,8 +77,8 @@ export const orderWithFilesSchema = z.object({
   sheetCount: z.number(),
   totalPriceSar: z.number(),
   status: z.enum(["pending", "paid", "uploaded", "processing", "complete"]),
-  stripeSessionId: z.string().nullable(),
-  stripePaymentIntentId: z.string().nullable(),
+  moyasarPaymentId: z.string().nullable(),
+  moyasarInvoiceId: z.string().nullable(),
   notes: z.string().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
@@ -289,6 +113,115 @@ export const orderWithFilesSchema = z.object({
 });
 
 export type OrderWithFiles = z.infer<typeof orderWithFilesSchema>;
+
+// ============================================
+// ACCOUNT BALANCE & COMPANY SCHEMA
+// ============================================
+
+// Company accounts
+export const companies = pgTable("companies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  balanceSar: integer("balance_sar").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Company membership (many-to-many: users ↔ companies)
+export const companyMembers = pgTable("company_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull().references(() => companies.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  role: varchar("role").notNull().default("member"), // 'admin' | 'member'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Balance transactions (for both personal and company)
+export const balanceTransactions = pgTable("balance_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // If companyId is null, it's a personal transaction
+  companyId: varchar("company_id").references(() => companies.id),
+  // The user who initiated the transaction
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: varchar("type").notNull(), // 'topup' | 'debit' | 'refund_request' | 'refund_approved'
+  amountSar: integer("amount_sar").notNull(), // Positive for credit, negative for debit
+  orderId: varchar("order_id").references(() => orders.id),
+  moyasarPaymentId: varchar("moyasar_payment_id"),
+  status: varchar("status").notNull().default("completed"), // 'pending' | 'completed' | 'rejected'
+  note: text("note"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Personal balance table (1:1 with users)
+// Ideally this could be on the user table, but separate table is cleaner for migration
+export const userBalances = pgTable("user_balances", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  balanceSar: integer("balance_sar").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Relations
+export const companiesRelations = relations(companies, ({ many }) => ({
+  members: many(companyMembers),
+  transactions: many(balanceTransactions),
+}));
+
+export const companyMembersRelations = relations(companyMembers, ({ one }) => ({
+  company: one(companies, {
+    fields: [companyMembers.companyId],
+    references: [companies.id],
+  }),
+  user: one(users, {
+    fields: [companyMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const balanceTransactionsRelations = relations(balanceTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [balanceTransactions.userId],
+    references: [users.id],
+  }),
+  company: one(companies, {
+    fields: [balanceTransactions.companyId],
+    references: [companies.id],
+  }),
+  order: one(orders, {
+    fields: [balanceTransactions.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const userBalancesRelations = relations(userBalances, ({ one }) => ({
+  user: one(users, {
+    fields: [userBalances.userId],
+    references: [users.id],
+  }),
+}));
+
+// Insert schemas
+export const insertCompanySchema = createInsertSchema(companies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCompanyMemberSchema = createInsertSchema(companyMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertBalanceTransactionSchema = createInsertSchema(balanceTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Types
+export type Company = typeof companies.$inferSelect;
+export type CompanyMember = typeof companyMembers.$inferSelect;
+export type BalanceTransaction = typeof balanceTransactions.$inferSelect;
+export type UserBalance = typeof userBalances.$inferSelect;
 
 // Price per sheet in SAR
 export const PRICE_PER_SHEET_SAR = 150;

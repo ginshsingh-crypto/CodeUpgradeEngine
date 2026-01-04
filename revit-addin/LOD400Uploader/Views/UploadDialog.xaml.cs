@@ -391,14 +391,15 @@ namespace LOD400Uploader.Views
                     Dispatcher.Invoke(() =>
                     {
                         var cloudWarningResult = MessageBox.Show(
-                            $"This model contains {packageResult.CloudLinksDetected} cloud-hosted link(s) (BIM 360/ACC) that cannot be packaged.\n\n" +
-                            "These links will be recorded in the manifest but the linked files will NOT be included in the upload. " +
-                            "When we open your model, the cloud links will appear as missing.\n\n" +
-                            "Options:\n" +
-                            "• Continue anyway if cloud links are not needed for LOD 400 annotations\n" +
-                            "• Cancel and use Revit's 'Bind Link' or 'eTransmit' to include them locally\n\n" +
-                            "Do you want to continue with the upload?",
-                            "Cloud Links Detected",
+                            $"⚠️ CRITICAL: This model contains {packageResult.CloudLinksDetected} cloud-hosted link(s) (BIM 360/ACC) that CANNOT be packaged.\n\n" +
+                            "These linked models (often Architecture/Structure backgrounds) will be MISSING when we open your file. " +
+                            "Your shop drawings may show MEP elements floating in empty space without walls, floors, or structural grids.\n\n" +
+                            "STRONGLY RECOMMENDED:\n" +
+                            "• Cancel now and use Revit's eTransmit (File > Export > eTransmit) to create a local package\n" +
+                            "• Or use 'Bind Link' to embed critical backgrounds into your model\n\n" +
+                            "Only continue if you are certain the cloud links are NOT needed for your shop drawings.\n\n" +
+                            "Do you want to continue anyway?",
+                            "Cloud Links Cannot Be Accessed",
                             MessageBoxButton.YesNo,
                             MessageBoxImage.Warning);
 

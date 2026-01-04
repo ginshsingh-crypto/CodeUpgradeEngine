@@ -1005,37 +1005,13 @@ export async function registerRoutes(
         });
       }
 
-      const stripe = await getUncachableStripeClient();
-
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: "sar",
-              product_data: {
-                name: `LOD 400 Sheet Upgrade (${order.sheetCount} sheets)`,
-                description: `Professional LOD 300 to LOD 400 model upgrade for ${order.sheetCount} sheets`,
-              },
-              unit_amount: order.totalPriceSar * 100,
-            },
-            quantity: 1,
-          },
-        ],
-        mode: "payment",
-        success_url: `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}/?payment=success&order=${order.id}`,
-        cancel_url: `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}/?payment=cancelled&order=${order.id}`,
-        metadata: {
-          orderId: order.id,
-          userId,
-        },
-      });
-
-      await storage.updateOrder(order.id, { stripeSessionId: session.id });
+      // Send user to frontend payment page (Moyasar-based)
+      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const frontendPaymentUrl = `https://${domain}/payment/${order.id}`;
 
       res.status(201).json({
         order,
-        checkoutUrl: session.url
+        checkoutUrl: frontendPaymentUrl
       });
     } catch (error) {
       console.error("Error creating order:", error);
@@ -1265,78 +1241,159 @@ export async function registerRoutes(
       console.error("Error getting download URL:", error);
       res.status(500).json({ message: "Failed to get download URL" });
     }
-    console.error("Error getting download URL:", error);
-    res.status(500).json({ message: "Failed to get download URL" });
-  }
   });
 
-app.get("/api/moyasar/config", async (req, res) => {
-  try {
-    const { getMoyasarPublishableKey } = await import("./moyasarClient");
-    res.json({ publishableKey: getMoyasarPublishableKey() });
-  } catch (error) {
-    console.error("Error getting Moyasar config:", error);
-    res.status(500).json({ message: "Failed to get config" });
-  }
-});
-
-// ============================================
-// DOWNLOAD ROUTES (for Revit add-in distribution)
-// ============================================
-
-const fs = await import("fs");
-const path = await import("path");
-const archiver = await import("archiver");
-
-app.get("/api/downloads/installer.ps1", (req, res) => {
-  const installerPath = path.default.join(process.cwd(), "revit-addin", "Install-LOD400.ps1");
-
-  if (!fs.default.existsSync(installerPath)) {
-    return res.status(404).send("Installer not found");
-  }
-
-  res.setHeader("Content-Type", "text/plain");
-  res.setHeader("Content-Disposition", "attachment; filename=Install-LOD400.ps1");
-  res.sendFile(installerPath);
-});
-
-app.get("/api/downloads/addin-source.zip", (req, res) => {
-  const addinDir = path.default.join(process.cwd(), "revit-addin");
-
-  if (!fs.default.existsSync(addinDir)) {
-    return res.status(404).send("Add-in source not found");
-  }
-
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin-Source.zip");
-
-  const archive = archiver.default("zip", { zlib: { level: 9 } });
-  archive.on("error", (err: Error) => {
-    res.status(500).send("Error creating archive");
+  app.get("/api/moyasar/config", async (req, res) => {
+    try {
+      const { getMoyasarPublishableKey } = await import("./moyasarClient");
+      res.json({ publishableKey: getMoyasarPublishableKey() });
+    } catch (error) {
+      console.error("Error getting Moyasar config:", error);
+      res.status(500).json({ message: "Failed to get config" });
+    }
   });
 
-  archive.pipe(res);
-  archive.directory(addinDir, "LOD400-Addin");
-  archive.finalize();
-});
+  // Moyasar checkout for order payments (credit card flow)
+  // This is called by PaymentPage.tsx when user clicks "Pay with Credit Card"
+  app.post("/api/moyasar/checkout/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const userId = req.dbUser.id;
 
-app.get("/api/downloads/addin-compiled.zip", async (req, res) => {
-  const addinDir = path.default.join(process.cwd(), "revit-addin");
+      const order = await storage.getOrder(orderId);
+      if (!order || order.userId !== userId) {
+        return res.status(404).json({ message: "Order not found" });
+      }
 
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin.zip");
+      if (order.status !== 'pending') {
+        return res.status(400).json({ message: "Order is already processed or paid" });
+      }
 
-  const archive = archiver.default("zip", { zlib: { level: 9 } });
-  archive.on("error", (err: Error) => {
-    res.status(500).send("Error creating archive");
+      const { createPayment } = await import("./moyasarClient");
+
+      // Amount in Halalas (1 SAR = 100 Halalas)
+      const amountInHalalas = order.totalPriceSar * 100;
+
+      const domain = process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+
+      const payment = await createPayment({
+        amount: amountInHalalas,
+        currency: "SAR",
+        description: `LOD 400 Upgrade - Order #${order.id.slice(-8)} (${order.sheetCount} sheets)`,
+        callback_url: `https://${domain}/api/orders/${orderId}/payment-callback`,
+        metadata: {
+          orderId: order.id,
+          userId: userId,
+          type: "order_payment"
+        }
+      });
+
+      // Store payment ID for verification in callback
+      await storage.updateOrder(orderId, { moyasarPaymentId: payment.id });
+
+      // Return 3DS redirect URL
+      res.json({
+        url: payment.source?.transaction_url || `https://moyasar.com/payment/${payment.id}`,
+        paymentId: payment.id
+      });
+
+    } catch (error: any) {
+      console.error("Moyasar checkout error:", error);
+      res.status(500).json({ message: "Payment initialization failed" });
+    }
   });
 
-  archive.pipe(res);
-  archive.file(path.default.join(addinDir, "Install-LOD400.ps1"), { name: "Install-LOD400.ps1" });
-  archive.file(path.default.join(addinDir, "LOD400Uploader", "LOD400Uploader.addin"), { name: "LOD400Uploader.addin" });
-  archive.file(path.default.join(addinDir, "README.md"), { name: "README.md" });
+  // Callback after Moyasar order payment (3DS redirect)
+  app.get("/api/orders/:orderId/payment-callback", async (req: any, res) => {
+    const { orderId } = req.params;
+    const { id: paymentId, status, message } = req.query;
 
-  const readmeContent = `LOD 400 Uploader - Revit Add-in
+    if (status === "paid") {
+      try {
+        // Verify payment matches order
+        const order = await storage.getOrder(orderId);
+        if (order && order.moyasarPaymentId === paymentId) {
+          await storage.updateOrderStatus(orderId, "paid");
+
+          // Send confirmation email
+          const orderWithUser = await storage.getOrderWithFiles(orderId);
+          if (orderWithUser?.user?.email) {
+            sendOrderPaidEmail(
+              orderWithUser.user.email,
+              orderId,
+              orderWithUser.sheetCount,
+              orderWithUser.user.firstName || undefined
+            ).catch(err => console.error('Failed to send paid email:', err));
+          }
+        }
+
+        res.redirect(`/?payment=success&order=${orderId}`);
+      } catch (err) {
+        console.error("Payment callback error:", err);
+        res.redirect(`/?payment=error&order=${orderId}`);
+      }
+    } else {
+      res.redirect(`/?payment=failed&order=${orderId}&message=${encodeURIComponent(message || 'Payment failed')}`);
+    }
+  });
+
+  // ============================================
+  // DOWNLOAD ROUTES (for Revit add-in distribution)
+  // ============================================
+
+  const fs = await import("fs");
+  const path = await import("path");
+  const archiver = await import("archiver");
+
+  app.get("/api/downloads/installer.ps1", (req, res) => {
+    const installerPath = path.default.join(process.cwd(), "revit-addin", "Install-LOD400.ps1");
+
+    if (!fs.default.existsSync(installerPath)) {
+      return res.status(404).send("Installer not found");
+    }
+
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Disposition", "attachment; filename=Install-LOD400.ps1");
+    res.sendFile(installerPath);
+  });
+
+  app.get("/api/downloads/addin-source.zip", (req, res) => {
+    const addinDir = path.default.join(process.cwd(), "revit-addin");
+
+    if (!fs.default.existsSync(addinDir)) {
+      return res.status(404).send("Add-in source not found");
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin-Source.zip");
+
+    const archive = archiver.default("zip", { zlib: { level: 9 } });
+    archive.on("error", (err: Error) => {
+      res.status(500).send("Error creating archive");
+    });
+
+    archive.pipe(res);
+    archive.directory(addinDir, "LOD400-Addin");
+    archive.finalize();
+  });
+
+  app.get("/api/downloads/addin-compiled.zip", async (req, res) => {
+    const addinDir = path.default.join(process.cwd(), "revit-addin");
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", "attachment; filename=LOD400-Addin.zip");
+
+    const archive = archiver.default("zip", { zlib: { level: 9 } });
+    archive.on("error", (err: Error) => {
+      res.status(500).send("Error creating archive");
+    });
+
+    archive.pipe(res);
+    archive.file(path.default.join(addinDir, "Install-LOD400.ps1"), { name: "Install-LOD400.ps1" });
+    archive.file(path.default.join(addinDir, "LOD400Uploader", "LOD400Uploader.addin"), { name: "LOD400Uploader.addin" });
+    archive.file(path.default.join(addinDir, "README.md"), { name: "README.md" });
+
+    const readmeContent = `LOD 400 Uploader - Revit Add-in
 ================================
 
 INSTALLATION:
@@ -1353,322 +1410,322 @@ To compile:
 
 For pre-compiled versions, contact support.
 `;
-  archive.append(readmeContent, { name: "INSTALL.txt" });
+    archive.append(readmeContent, { name: "INSTALL.txt" });
 
-  archive.directory(path.default.join(addinDir, "LOD400Uploader"), "LOD400Uploader");
-  archive.finalize();
-});
+    archive.directory(path.default.join(addinDir, "LOD400Uploader"), "LOD400Uploader");
+    archive.finalize();
+  });
 
-// ============================================
-// BALANCE & COMPANY ROUTES
-// ============================================
+  // ============================================
+  // BALANCE & COMPANY ROUTES
+  // ============================================
 
-app.get("/api/balance", isAuthenticated, async (req: any, res) => {
-  try {
-    const { BalanceService } = await import("./balanceService");
-    const balances = await BalanceService.getUserBalances(req.dbUser.id);
-    res.json(balances);
-  } catch (error) {
-    console.error("Error getting balances:", error);
-    res.status(500).json({ message: "Failed to get balances" });
-  }
-});
-
-app.post("/api/balance/topup", isAuthenticated, async (req: any, res) => {
-  try {
-    const { amountSar, companyId } = req.body;
-
-    if (!amountSar || amountSar <= 0) {
-      return res.status(400).json({ message: "Amount must be positive" });
-    }
-
-    const { BalanceService } = await import("./balanceService");
-
-    // If companyId is provided, verify membership
-    if (companyId) {
-      // TODO: add specific permission check for "admin" role if needed
-    }
-
-    const result = await BalanceService.initiateTopUp(req.dbUser.id, amountSar, companyId);
-
-    // Construct payment URL
-    const { buildPaymentFormUrl } = await import("./moyasarClient");
-    const paymentUrl = buildPaymentFormUrl(result.paymentId);
-
-    res.json({ ...result, paymentUrl });
-  } catch (error) {
-    console.error("Error initiating top-up:", error);
-    res.status(500).json({ message: "Failed to initiate top-up" });
-  }
-});
-
-// Callback for Moyasar after top-up payment
-app.get("/api/balance/topup-callback", async (req: any, res) => {
-  // Moyasar redirects here with status, id, message
-  const { id, status, message } = req.query;
-
-  // We display a success/failure page to the user
-  // The actual credit happens via webhook asynchronously
-  if (status === "paid") {
-    res.redirect(`/?balance_topup=success&payment_id=${id}`);
-  } else {
-    res.redirect(`/?balance_topup=failed&message=${message}`);
-  }
-});
-
-app.post("/api/orders/:orderId/pay-with-balance", isAuthenticated, async (req: any, res) => {
-  try {
-    const { orderId } = req.params;
-    const { companyId } = req.body;
-    const userId = req.dbUser.id;
-
-    const order = await storage.getOrder(orderId);
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    if (order.userId !== userId) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-
-    const { BalanceService } = await import("./balanceService");
-
+  app.get("/api/balance", isAuthenticated, async (req: any, res) => {
     try {
-      await BalanceService.payOrderWithBalance(userId, orderId, companyId);
+      const { BalanceService } = await import("./balanceService");
+      const balances = await BalanceService.getUserBalances(req.dbUser.id);
+      res.json(balances);
+    } catch (error) {
+      console.error("Error getting balances:", error);
+      res.status(500).json({ message: "Failed to get balances" });
+    }
+  });
 
-      // Send email notification (reusing service logic)
-      const user = await storage.getUser(userId);
-      if (user?.email) {
-        import("./emailService").then(service => {
-          service.sendOrderPaidEmail(
-            user.email!,
-            orderId,
-            order.sheetCount,
-            user.firstName || undefined
-          ).catch(console.error);
-        });
+  app.post("/api/balance/topup", isAuthenticated, async (req: any, res) => {
+    try {
+      const { amountSar, companyId } = req.body;
+
+      if (!amountSar || amountSar <= 0) {
+        return res.status(400).json({ message: "Amount must be positive" });
       }
 
+      const { BalanceService } = await import("./balanceService");
+
+      // If companyId is provided, verify membership
+      if (companyId) {
+        // TODO: add specific permission check for "admin" role if needed
+      }
+
+      const result = await BalanceService.initiateTopUp(req.dbUser.id, amountSar, companyId);
+
+      // Construct payment URL
+      const { buildPaymentFormUrl } = await import("./moyasarClient");
+      const paymentUrl = buildPaymentFormUrl(result.paymentId);
+
+      res.json({ ...result, paymentUrl });
+    } catch (error) {
+      console.error("Error initiating top-up:", error);
+      res.status(500).json({ message: "Failed to initiate top-up" });
+    }
+  });
+
+  // Callback for Moyasar after top-up payment
+  app.get("/api/balance/topup-callback", async (req: any, res) => {
+    // Moyasar redirects here with status, id, message
+    const { id, status, message } = req.query;
+
+    // We display a success/failure page to the user
+    // The actual credit happens via webhook asynchronously
+    if (status === "paid") {
+      res.redirect(`/?balance_topup=success&payment_id=${id}`);
+    } else {
+      res.redirect(`/?balance_topup=failed&message=${message}`);
+    }
+  });
+
+  app.post("/api/orders/:orderId/pay-with-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { companyId } = req.body;
+      const userId = req.dbUser.id;
+
+      const order = await storage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      if (order.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const { BalanceService } = await import("./balanceService");
+
+      try {
+        await BalanceService.payOrderWithBalance(userId, orderId, companyId);
+
+        // Send email notification (reusing service logic)
+        const user = await storage.getUser(userId);
+        if (user?.email) {
+          import("./emailService").then(service => {
+            service.sendOrderPaidEmail(
+              user.email!,
+              orderId,
+              order.sheetCount,
+              user.firstName || undefined
+            ).catch(console.error);
+          });
+        }
+
+        res.json({ success: true });
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Payment failed" });
+      }
+    } catch (error) {
+      console.error("Error paying with balance:", error);
+      res.status(500).json({ message: "Failed to process payment" });
+    }
+  });
+
+  // ============================================
+  // REFUND & ORDER MANEGEMENT ROUTES
+  // ============================================
+
+  app.post("/api/orders/:orderId/refund-request", isAuthenticated, async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { note } = req.body;
+      const userId = req.dbUser.id;
+
+      // Check ownership
+      const order = await storage.getOrder(orderId);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+
+      const { BalanceService } = await import("./balanceService");
+      await BalanceService.requestRefund(userId, orderId, note);
+
+      res.json({ success: true, message: "Refund request submitted" });
+    } catch (error: any) {
+      console.error("Error requesting refund:", error);
+      res.status(400).json({ message: error.message || "Failed to request refund" });
+    }
+  });
+
+  // Admin routes for refunds
+  app.get("/api/admin/refunds", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const requests = await storage.getPendingRefundRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Error getting refund requests:", error);
+      res.status(500).json({ message: "Failed to get refund requests" });
+    }
+  });
+  app.get("/api/admin/refunds", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      // Determine if we need to filter? For now return all pending.
+      // We need to join with users and orders.
+      // Using simple query for now.
+      const requests = await storage.getPendingRefundRequests();
+      // Wait, storage doesn't have this method. 
+      // We can use db directly here or add to storage.
+      // Since we are in routes, and storage is DatabaseStorage, we can add it there or use direct db access via import if we want, 
+      // but better to keep abstraction or use BalanceService if appropriate?
+      // BalanceService is for logic. Storage for data access. 
+      // Let's add getPendingRefundRequests to storage interface/implementation.
+      // OR just duplicate logic here for speed if acceptable. 
+      // "storage" variable is available.
+      // Let's assume we will add it to storage.ts in a moment.
+      res.json(requests);
+    } catch (error) {
+      console.error("Error getting refund requests:", error);
+      res.status(500).json({ message: "Failed to get refund requests" });
+    }
+  });
+
+  app.post("/api/admin/refunds/:transactionId/approve", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { transactionId } = req.params;
+      const { BalanceService } = await import("./balanceService");
+
+      await BalanceService.approveRefund(req.dbUser.id, transactionId);
+      res.json({ success: true, message: "Refund approved" });
+    } catch (error: any) {
+      console.error("Error approving refund:", error);
+      res.status(400).json({ message: error.message || "Failed to approve refund" });
+    }
+  });
+
+  app.post("/api/admin/refunds/:transactionId/reject", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { transactionId } = req.params;
+      const { note } = req.body;
+      const { BalanceService } = await import("./balanceService");
+
+      await BalanceService.rejectRefund(req.dbUser.id, transactionId, note);
+      res.json({ success: true, message: "Refund rejected" });
+    } catch (error: any) {
+      console.error("Error rejecting refund:", error);
+      res.status(400).json({ message: error.message || "Failed to reject refund" });
+    }
+  });
+
+  // ============================================
+  // COMPANY ROUTES
+  // ============================================
+
+  app.post("/api/companies", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name } = req.body;
+      if (!name || typeof name !== 'string') {
+        return res.status(400).json({ message: "Company name is required" });
+      }
+
+      const company = await storage.createCompany(name, req.dbUser.id);
+      res.json(company);
+    } catch (error) {
+      console.error("Error creating company:", error);
+      res.status(500).json({ message: "Failed to create company" });
+    }
+  });
+
+  app.get("/api/companies/:companyId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const company = await storage.getCompany(companyId);
+
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+
+      // Check membership
+      const members = await storage.getCompanyMembers(companyId);
+      const isMember = members.some(m => m.userId === req.dbUser.id);
+
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this company" });
+      }
+
+      res.json(company);
+    } catch (error) {
+      console.error("Error getting company:", error);
+      res.status(500).json({ message: "Failed to get company" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/members", isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+
+      // Check membership
+      const members = await storage.getCompanyMembers(companyId);
+      const isMember = members.some(m => m.userId === req.dbUser.id);
+
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this company" });
+      }
+
+      // Populate user details for members if needed (requires join or separate fetch)
+      // For now returning member records (userId, role, etc)
+      // Ideally we should return user names/emails.
+      // Let's fetch user details for each member.
+      const membersWithDetails = await Promise.all(members.map(async (m) => {
+        const user = await storage.getUser(m.userId);
+        return {
+          ...m,
+          firstName: user?.firstName,
+          lastName: user?.lastName,
+          email: user?.email // Be careful leaking emails if not admin?
+        };
+      }));
+
+      res.json(membersWithDetails);
+    } catch (error) {
+      console.error("Error getting company members:", error);
+      res.status(500).json({ message: "Failed to get members" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/members", isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId } = req.params;
+      const { email, role } = req.body;
+
+      if (!email || !/\S+@\S+\.\S+/.test(email)) {
+        return res.status(400).json({ message: "Valid email required" });
+      }
+
+      // Check permissions (must be admin of company)
+      const members = await storage.getCompanyMembers(companyId);
+      const currentUserMember = members.find(m => m.userId === req.dbUser.id);
+
+      if (!currentUserMember || currentUserMember.role !== "admin") {
+        return res.status(403).json({ message: "Only company admins can add members" });
+      }
+
+      await storage.addCompanyMember(companyId, email, role || "member");
       res.json({ success: true });
-    } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Payment failed" });
+    } catch (error: any) {
+      console.error("Error adding member:", error);
+      res.status(400).json({ message: error.message || "Failed to add member" });
     }
-  } catch (error) {
-    console.error("Error paying with balance:", error);
-    res.status(500).json({ message: "Failed to process payment" });
-  }
-});
+  });
 
-// ============================================
-// REFUND & ORDER MANEGEMENT ROUTES
-// ============================================
+  app.delete("/api/companies/:companyId/members/:userId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { companyId, userId: targetUserId } = req.params;
 
-app.post("/api/orders/:orderId/refund-request", isAuthenticated, async (req: any, res) => {
-  try {
-    const { orderId } = req.params;
-    const { note } = req.body;
-    const userId = req.dbUser.id;
+      // Check permissions
+      const members = await storage.getCompanyMembers(companyId);
+      const currentUserMember = members.find(m => m.userId === req.dbUser.id);
 
-    // Check ownership
-    const order = await storage.getOrder(orderId);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.userId !== userId) return res.status(403).json({ message: "Forbidden" });
-
-    const { BalanceService } = await import("./balanceService");
-    await BalanceService.requestRefund(userId, orderId, note);
-
-    res.json({ success: true, message: "Refund request submitted" });
-  } catch (error: any) {
-    console.error("Error requesting refund:", error);
-    res.status(400).json({ message: error.message || "Failed to request refund" });
-  }
-});
-
-// Admin routes for refunds
-app.get("/api/admin/refunds", isAuthenticated, isAdmin, async (req: any, res) => {
-  try {
-    const requests = await storage.getPendingRefundRequests();
-    res.json(requests);
-  } catch (error) {
-    console.error("Error getting refund requests:", error);
-    res.status(500).json({ message: "Failed to get refund requests" });
-  }
-});
-app.get("/api/admin/refunds", isAuthenticated, isAdmin, async (req: any, res) => {
-  try {
-    // Determine if we need to filter? For now return all pending.
-    // We need to join with users and orders.
-    // Using simple query for now.
-    const requests = await storage.getPendingRefundRequests();
-    // Wait, storage doesn't have this method. 
-    // We can use db directly here or add to storage.
-    // Since we are in routes, and storage is DatabaseStorage, we can add it there or use direct db access via import if we want, 
-    // but better to keep abstraction or use BalanceService if appropriate?
-    // BalanceService is for logic. Storage for data access. 
-    // Let's add getPendingRefundRequests to storage interface/implementation.
-    // OR just duplicate logic here for speed if acceptable. 
-    // "storage" variable is available.
-    // Let's assume we will add it to storage.ts in a moment.
-    res.json(requests);
-  } catch (error) {
-    console.error("Error getting refund requests:", error);
-    res.status(500).json({ message: "Failed to get refund requests" });
-  }
-});
-
-app.post("/api/admin/refunds/:transactionId/approve", isAuthenticated, isAdmin, async (req: any, res) => {
-  try {
-    const { transactionId } = req.params;
-    const { BalanceService } = await import("./balanceService");
-
-    await BalanceService.approveRefund(req.dbUser.id, transactionId);
-    res.json({ success: true, message: "Refund approved" });
-  } catch (error: any) {
-    console.error("Error approving refund:", error);
-    res.status(400).json({ message: error.message || "Failed to approve refund" });
-  }
-});
-
-app.post("/api/admin/refunds/:transactionId/reject", isAuthenticated, isAdmin, async (req: any, res) => {
-  try {
-    const { transactionId } = req.params;
-    const { note } = req.body;
-    const { BalanceService } = await import("./balanceService");
-
-    await BalanceService.rejectRefund(req.dbUser.id, transactionId, note);
-    res.json({ success: true, message: "Refund rejected" });
-  } catch (error: any) {
-    console.error("Error rejecting refund:", error);
-    res.status(400).json({ message: error.message || "Failed to reject refund" });
-  }
-});
-
-// ============================================
-// COMPANY ROUTES
-// ============================================
-
-app.post("/api/companies", isAuthenticated, async (req: any, res) => {
-  try {
-    const { name } = req.body;
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ message: "Company name is required" });
-    }
-
-    const company = await storage.createCompany(name, req.dbUser.id);
-    res.json(company);
-  } catch (error) {
-    console.error("Error creating company:", error);
-    res.status(500).json({ message: "Failed to create company" });
-  }
-});
-
-app.get("/api/companies/:companyId", isAuthenticated, async (req: any, res) => {
-  try {
-    const { companyId } = req.params;
-    const company = await storage.getCompany(companyId);
-
-    if (!company) {
-      return res.status(404).json({ message: "Company not found" });
-    }
-
-    // Check membership
-    const members = await storage.getCompanyMembers(companyId);
-    const isMember = members.some(m => m.userId === req.dbUser.id);
-
-    if (!isMember) {
-      return res.status(403).json({ message: "Not a member of this company" });
-    }
-
-    res.json(company);
-  } catch (error) {
-    console.error("Error getting company:", error);
-    res.status(500).json({ message: "Failed to get company" });
-  }
-});
-
-app.get("/api/companies/:companyId/members", isAuthenticated, async (req: any, res) => {
-  try {
-    const { companyId } = req.params;
-
-    // Check membership
-    const members = await storage.getCompanyMembers(companyId);
-    const isMember = members.some(m => m.userId === req.dbUser.id);
-
-    if (!isMember) {
-      return res.status(403).json({ message: "Not a member of this company" });
-    }
-
-    // Populate user details for members if needed (requires join or separate fetch)
-    // For now returning member records (userId, role, etc)
-    // Ideally we should return user names/emails.
-    // Let's fetch user details for each member.
-    const membersWithDetails = await Promise.all(members.map(async (m) => {
-      const user = await storage.getUser(m.userId);
-      return {
-        ...m,
-        firstName: user?.firstName,
-        lastName: user?.lastName,
-        email: user?.email // Be careful leaking emails if not admin?
-      };
-    }));
-
-    res.json(membersWithDetails);
-  } catch (error) {
-    console.error("Error getting company members:", error);
-    res.status(500).json({ message: "Failed to get members" });
-  }
-});
-
-app.post("/api/companies/:companyId/members", isAuthenticated, async (req: any, res) => {
-  try {
-    const { companyId } = req.params;
-    const { email, role } = req.body;
-
-    if (!email || !/\S+@\S+\.\S+/.test(email)) {
-      return res.status(400).json({ message: "Valid email required" });
-    }
-
-    // Check permissions (must be admin of company)
-    const members = await storage.getCompanyMembers(companyId);
-    const currentUserMember = members.find(m => m.userId === req.dbUser.id);
-
-    if (!currentUserMember || currentUserMember.role !== "admin") {
-      return res.status(403).json({ message: "Only company admins can add members" });
-    }
-
-    await storage.addCompanyMember(companyId, email, role || "member");
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error("Error adding member:", error);
-    res.status(400).json({ message: error.message || "Failed to add member" });
-  }
-});
-
-app.delete("/api/companies/:companyId/members/:userId", isAuthenticated, async (req: any, res) => {
-  try {
-    const { companyId, userId: targetUserId } = req.params;
-
-    // Check permissions
-    const members = await storage.getCompanyMembers(companyId);
-    const currentUserMember = members.find(m => m.userId === req.dbUser.id);
-
-    if (!currentUserMember || currentUserMember.role !== "admin") {
-      // Allow users to leave company themselves?
-      if (targetUserId !== req.dbUser.id) {
-        return res.status(403).json({ message: "Only company admins can remove other members" });
+      if (!currentUserMember || currentUserMember.role !== "admin") {
+        // Allow users to leave company themselves?
+        if (targetUserId !== req.dbUser.id) {
+          return res.status(403).json({ message: "Only company admins can remove other members" });
+        }
       }
+
+      // Prevent removing the last admin? (Edge case, but good to have)
+      // For now simple removal.
+
+      await storage.removeCompanyMember(companyId, targetUserId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing member:", error);
+      res.status(500).json({ message: "Failed to remove member" });
     }
+  });
 
-    // Prevent removing the last admin? (Edge case, but good to have)
-    // For now simple removal.
-
-    await storage.removeCompanyMember(companyId, targetUserId);
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error removing member:", error);
-    res.status(500).json({ message: "Failed to remove member" });
-  }
-});
-
-return httpServer;
+  return httpServer;
 }
